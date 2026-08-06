@@ -1,0 +1,41 @@
+services:
+  api-hub:
+    build: .
+    container_name: api-hub
+    restart: unless-stopped
+    environment:
+      APIHUB_GATEWAY_INTERNAL_URL: http://api-hub-gateway:8787/v1/web
+      APIHUB_WEB_INTERNAL_TOKEN: ${APIHUB_WEB_INTERNAL_TOKEN:?Set APIHUB_WEB_INTERNAL_TOKEN in .env}
+      APIHUB_WEB_PASSWORD: ${APIHUB_WEB_PASSWORD:?Set APIHUB_WEB_PASSWORD in .env}
+      APIHUB_WEB_SESSION_SECRET: ${APIHUB_WEB_SESSION_SECRET:?Set APIHUB_WEB_SESSION_SECRET in .env}
+    depends_on:
+      - api-hub-gateway
+    ports:
+      - "3000:3000"
+
+  api-hub-gateway:
+    build: ./gateway
+    container_name: api-hub-gateway
+    restart: unless-stopped
+    environment:
+      APIHUB_GATEWAY_HOST: 0.0.0.0
+      APIHUB_GATEWAY_PORT: 8787
+      APIHUB_DB_PATH: /data/apihub.sqlite
+      APIHUB_OPENCLAW_TOKEN: ${APIHUB_OPENCLAW_TOKEN:?Set APIHUB_OPENCLAW_TOKEN in .env}
+      APIHUB_OPENCLAW_HMAC_SECRET: ${APIHUB_OPENCLAW_HMAC_SECRET:?Set APIHUB_OPENCLAW_HMAC_SECRET in .env}
+      APIHUB_WEB_INTERNAL_TOKEN: ${APIHUB_WEB_INTERNAL_TOKEN:?Set APIHUB_WEB_INTERNAL_TOKEN in .env}
+      APIHUB_SECRETS_MASTER_KEY: ${APIHUB_SECRETS_MASTER_KEY:?Set APIHUB_SECRETS_MASTER_KEY in .env}
+      APIHUB_GATE_MODEL_BASE_URL: ${APIHUB_GATE_MODEL_BASE_URL:-https://api.openai.com/v1}
+      APIHUB_GATE_MODEL: ${APIHUB_GATE_MODEL:-}
+      APIHUB_GATE_MODEL_API_KEY: ${APIHUB_GATE_MODEL_API_KEY:-}
+      APIHUB_ALLOW_PRIVATE_MODEL_ENDPOINTS: ${APIHUB_ALLOW_PRIVATE_MODEL_ENDPOINTS:-false}
+      APIHUB_GATE_CONFIDENCE_THRESHOLD: ${APIHUB_GATE_CONFIDENCE_THRESHOLD:-0.85}
+      APIHUB_APPROVAL_TTL_MINUTES: ${APIHUB_APPROVAL_TTL_MINUTES:-15}
+      APIHUB_EXCHANGE_RATE_URL: ${APIHUB_EXCHANGE_RATE_URL:-https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml}
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - api-hub-data:/data
+
+volumes:
+  api-hub-data:

@@ -1,0 +1,12 @@
+.git
+.env*
+.dev.vars*
+.vinext
+.wrangler
+dist
+node_modules
+.pnpm-store
+dev-server.*.log
+*.local
+data
+gateway/data

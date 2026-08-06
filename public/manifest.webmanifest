@@ -1,0 +1,10 @@
+{
+  "name": "API Hub 订阅管理台",
+  "short_name": "API Hub",
+  "description": "管理 API 订阅到期、费用、渠道、标签与发票；不保存任何 API 密钥。",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f2",
+  "theme_color": "#152b23",
+  "lang": "zh-CN"
+}
