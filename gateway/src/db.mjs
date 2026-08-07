@@ -87,7 +87,7 @@ export class ApiHubDatabase {
         price REAL NOT NULL DEFAULT 0 CHECK(price >= 0),
         currency TEXT NOT NULL DEFAULT 'CNY' CHECK(currency IN ('CNY','USD','EUR')),
         billing_cycle TEXT NOT NULL DEFAULT 'monthly' CHECK(billing_cycle IN ('monthly','yearly')),
-        renewal_date TEXT NOT NULL,
+        renewal_date TEXT,
         channel TEXT,
         login_device TEXT,
         tags_json TEXT NOT NULL DEFAULT '[]',
@@ -178,6 +178,13 @@ export class ApiHubDatabase {
     for (const sql of statements) this.db.prepare(sql).run();
     const subscriptionColumns = new Set(this.db.prepare("PRAGMA table_info(subscriptions)").all().map((column) => column.name));
     if (!subscriptionColumns.has("login_device")) this.db.prepare("ALTER TABLE subscriptions ADD COLUMN login_device TEXT").run();
+    const renewalCol = this.db.prepare("PRAGMA table_info(subscriptions)").all().find((c) => c.name === "renewal_date");
+    if (renewalCol && renewalCol.notnull === 1) {
+      this.db.exec("CREATE TABLE IF NOT EXISTS subscriptions_new (id TEXT PRIMARY KEY, name TEXT NOT NULL, provider TEXT, plan TEXT, price REAL NOT NULL DEFAULT 0 CHECK(price >= 0), currency TEXT NOT NULL DEFAULT 'CNY' CHECK(currency IN ('CNY','USD','EUR')), billing_cycle TEXT NOT NULL DEFAULT 'monthly' CHECK(billing_cycle IN ('monthly','yearly')), renewal_date TEXT, channel TEXT, login_device TEXT, tags_json TEXT NOT NULL DEFAULT '[]', auto_renew INTEGER NOT NULL DEFAULT 0 CHECK(auto_renew IN (0,1)), invoice_status TEXT NOT NULL DEFAULT 'pending' CHECK(invoice_status IN ('issued','pending','none')), invoice_number TEXT, invoice_url TEXT, reminder_days INTEGER NOT NULL DEFAULT 7 CHECK(reminder_days BETWEEN 0 AND 365), notes TEXT, archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL)");
+      this.db.exec("INSERT INTO subscriptions_new SELECT * FROM subscriptions");
+      this.db.exec("DROP TABLE subscriptions");
+      this.db.exec("ALTER TABLE subscriptions_new RENAME TO subscriptions");
+    }
     this.db.prepare(`INSERT OR IGNORE INTO exchange_rate_cache
       (id, usd_cny, eur_cny, rate_date, source, updated_at) VALUES ('active', ?, ?, ?, ?, ?)`)
       .run(DEFAULT_EXCHANGE_RATES.rates.USD, DEFAULT_EXCHANGE_RATES.rates.EUR,
@@ -535,7 +542,7 @@ export class ApiHubDatabase {
            invoice_status, invoice_number, invoice_url, reminder_days, notes, archived, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`)
           .run(targetId, value.name, value.provider || null, value.plan || null, value.price ?? 0,
-            value.currency || "CNY", value.billingCycle || "monthly", value.renewalDate, value.channel || null,
+            value.currency || "CNY", value.billingCycle || "monthly", value.renewalDate || null, value.channel || null,
             value.loginDevice || null, JSON.stringify(value.tags || []), value.autoRenew ? 1 : 0, value.invoiceStatus || "pending",
             value.invoiceNumber || null, value.invoiceUrl || null, value.reminderDays ?? 7, value.notes || null,
             timestamp, timestamp);

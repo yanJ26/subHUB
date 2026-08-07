@@ -19,9 +19,11 @@ Hard rules:
 
 function extractContent(payload) {
   const content = payload?.choices?.[0]?.message?.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) return content.map((part) => part?.text || "").join("");
-  throw new Error("model_response_missing_content");
+  let text;
+  if (typeof content === "string") text = content;
+  else if (Array.isArray(content)) text = content.map((part) => part?.text || "").join("");
+  else throw new Error("model_response_missing_content");
+  return text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 }
 
 export async function parseWithModel(message, config, fetchImpl = fetch) {
@@ -35,20 +37,15 @@ export async function parseWithModel(message, config, fetchImpl = fetch) {
     },
     body: JSON.stringify({
       model: config.model,
-      temperature: 0,
-      max_tokens: 1000,
+      max_tokens: 4096,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: SYSTEM_PROMPT + "\n\nRequired JSON schema for output:\n" + JSON.stringify(INTAKE_JSON_SCHEMA) },
         { role: "user", content: JSON.stringify({
           currentDate: new Date().toISOString().slice(0, 10),
           allowedTags: Array.isArray(config.allowedTags) ? config.allowedTags : [],
           message,
         }) },
       ],
-      response_format: {
-        type: "json_schema",
-        json_schema: { name: "apihub_intake", strict: true, schema: INTAKE_JSON_SCHEMA },
-      },
     }),
     signal: AbortSignal.timeout(30_000),
   });
@@ -58,7 +55,8 @@ export async function parseWithModel(message, config, fetchImpl = fetch) {
     throw new Error(`model_http_${response.status}:${errorBody.slice(0, 200)}`);
   }
 
-  return normalizeModelResult(JSON.parse(extractContent(await response.json())));
+  const raw = extractContent(await response.json()).replace(/^```(?:json)?\s*\n?/m, "").replace(/\n?```\s*$/m, "").trim();
+  return normalizeModelResult(JSON.parse(raw));
 }
 
 export { SYSTEM_PROMPT };

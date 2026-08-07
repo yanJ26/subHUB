@@ -12,16 +12,16 @@ export function validateCommonFields(fields, allowedTags) {
   for (const key of Object.keys(fields)) {
     if (SENSITIVE_FIELD_PATTERN.test(key)) issues.push(issue("sensitive_field", `禁止字段：${key}`));
   }
-  if (fields.price !== undefined && (!Number.isFinite(fields.price) || fields.price < 0 || fields.price > 1_000_000)) {
+  if (fields.price != null && (!Number.isFinite(fields.price) || fields.price < 0 || fields.price > 1_000_000)) {
     issues.push(issue("invalid_price", "价格必须在 0 到 1,000,000 之间"));
   }
-  if (fields.renewalDate !== undefined && (!DATE_PATTERN.test(fields.renewalDate) || Number.isNaN(Date.parse(`${fields.renewalDate}T00:00:00Z`)))) {
+  if (fields.renewalDate != null && (!DATE_PATTERN.test(fields.renewalDate) || Number.isNaN(Date.parse(`${fields.renewalDate}T00:00:00Z`)))) {
     issues.push(issue("invalid_date", "到期时间必须是有效的 YYYY-MM-DD 日期"));
   }
   if (fields.invoiceUrl && !/^https:\/\//i.test(fields.invoiceUrl)) {
     issues.push(issue("invalid_invoice_url", "发票链接必须使用 HTTPS"));
   }
-  if (fields.reminderDays !== undefined && (!Number.isInteger(fields.reminderDays) || fields.reminderDays < 0 || fields.reminderDays > 365)) {
+  if (fields.reminderDays != null && (!Number.isInteger(fields.reminderDays) || fields.reminderDays < 0 || fields.reminderDays > 365)) {
     issues.push(issue("invalid_reminder", "提醒天数必须是 0 到 365 的整数"));
   }
   if (Array.isArray(fields.tags)) {
@@ -65,13 +65,10 @@ export function evaluateParsedIntent(parsed, db, config) {
   if (parsed.intent === "unknown") {
     return { status: "needs_clarification", issues: [issue("unknown_intent", "无法确定安全且受支持的操作")] };
   }
-  if (parsed.confidence < config.confidenceThreshold || parsed.missingFields.length) {
+  if (parsed.confidence < config.confidenceThreshold) {
     return {
       status: "needs_clarification",
-      issues: [
-        ...(parsed.confidence < config.confidenceThreshold ? [issue("low_confidence", `解析置信度 ${parsed.confidence.toFixed(2)} 低于阈值`)] : []),
-        ...parsed.missingFields.map((field) => issue("missing_field", `缺少字段：${field}`)),
-      ],
+      issues: [issue("low_confidence", `解析置信度 ${parsed.confidence.toFixed(2)} 低于阈值`)],
     };
   }
 
@@ -85,9 +82,7 @@ export function evaluateParsedIntent(parsed, db, config) {
   let target = null;
 
   if (parsed.intent === "create_subscription") {
-    for (const required of ["name", "price", "currency", "billingCycle", "renewalDate"]) {
-      if (fields[required] === undefined || fields[required] === "") issues.push(issue("missing_required", `新增订阅缺少：${required}`));
-    }
+    if (!fields.name) issues.push(issue("missing_required", `新增订阅缺少：${fieldLabels.name}`));
     const duplicates = fields.name ? db.findExactActiveSubscriptions(fields.name) : [];
     if (duplicates.length) issues.push(issue("possible_duplicate", `已存在同名订阅：${fields.name}`));
   } else {

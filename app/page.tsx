@@ -73,9 +73,30 @@ type ServerState = {
   exchangeRates?: ExchangeRateSnapshot;
 };
 
+const BASE_PATH = "/code/apihub";
 const STORAGE_KEY = "api-hub-subscriptions-v1";
 const TAGS_STORAGE_KEY = "api-hub-tags-v1";
 const MIGRATION_KEY = "api-hub-server-migrated-v1";
+
+const fieldHints: Record<string, string> = {
+  name: "订阅名称（如 Cursor、Claude Pro）",
+  provider: "服务商（如 OpenAI、Anthropic、MiniMax）",
+  plan: "方案名称（如 Plus、Pro、Team）",
+  price: "价格（如 20）",
+  currency: "币种（CNY、USD、EUR）",
+  billingCycle: "订阅周期（月付 / 年付）",
+  renewalDate: "到期时间（如 2026-08-13）",
+  channel: "订阅渠道（如官网、App Store、信用卡）",
+  loginDevice: "登录设备（如 Mac、Windows、iPhone）",
+  tags: "标签（主力、常用、弃用）",
+  autoRenew: "是否自动续费（是 / 否）",
+  invoiceStatus: "发票状态（已开票、待开票、无需发票）",
+  invoiceNumber: "发票号码",
+  invoiceUrl: "发票链接（HTTPS）",
+  reminderDays: "提前提醒天数（如 7）",
+  notes: "备注信息",
+};
+
 const tagColors = [
   { bg: "#daf7e8", color: "#17734b" },
   { bg: "#e7efff", color: "#315da8" },
@@ -119,14 +140,19 @@ const emptyForm: Omit<Subscription, "id"> = {
   archived: false,
 };
 
-function daysUntil(date: string) {
+function daysUntil(date: string | null | undefined): number | null {
+  if (!date) return null;
   const end = new Date(`${date}T23:59:59`);
+  if (Number.isNaN(end.getTime())) return null;
   const now = new Date();
   return Math.ceil((end.getTime() - now.getTime()) / 86400000);
 }
 
-function shortDate(date: string) {
-  return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(new Date(`${date}T12:00:00`));
+function shortDate(date: string | null | undefined): string {
+  if (!date) return "未设置";
+  const d = new Date(`${date}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return "未设置";
+  return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(d);
 }
 
 function formatMoney(value: number, currency: Subscription["currency"]) {
@@ -137,26 +163,80 @@ function formatMoney(value: number, currency: Subscription["currency"]) {
   }).format(value);
 }
 
-function renewalTone(days: number) {
+function renewalTone(days: number | null) {
+  if (days === null) return "neutral";
   if (days < 0) return "danger";
   if (days <= 7) return "warning";
   if (days <= 30) return "attention";
   return "safe";
 }
 
-function renewalCopy(days: number) {
+function renewalCopy(days: number | null) {
+  if (days === null) return "无到期时间";
   if (days < 0) return `已过期 ${Math.abs(days)} 天`;
   if (days === 0) return "今天续费";
   if (days === 1) return "明天续费";
   return `${days} 天后`;
 }
 
-function Avatar({ name }: { name: string }) {
+const providerDomains: Record<string, string> = {
+  codex: "openai.com",
+  openai: "openai.com",
+  minimax: "minimaxi.com",
+  "minimax cn": "minimaxi.com",
+  "minimax cn token plan": "minimaxi.com",
+  claude: "anthropic.com",
+  anthropic: "anthropic.com",
+  chatgpt: "openai.com",
+  cursor: "cursor.com",
+  github: "github.com",
+  vercel: "vercel.com",
+  notion: "notion.so",
+  figma: "figma.com",
+  spotify: "spotify.com",
+  netflix: "netflix.com",
+  apple: "apple.com",
+  google: "google.com",
+  midjourney: "midjourney.com",
+  perplexity: "perplexity.ai",
+  gemini: "google.com",
+  copilot: "github.com",
+};
+
+const providerLocalLogos: Record<string, string> = {
+  codex: `${BASE_PATH}/codex.png`,
+  openai: `${BASE_PATH}/codex.png`,
+  chatgpt: `${BASE_PATH}/codex.png`,
+  minimax: `${BASE_PATH}/minimax.webp`,
+  "minimax cn": `${BASE_PATH}/minimax.webp`,
+  "minimax cn token plan": `${BASE_PATH}/minimax.webp`,
+  qoder: `${BASE_PATH}/qoder-cn-icon-dark.png`,
+  qodercn: `${BASE_PATH}/qoder-cn-icon-dark.png`,
+  "qoder cn": `${BASE_PATH}/qoder-cn-icon-dark.png`,
+  qoderworkcn: `${BASE_PATH}/qoderwork-cn-icon.png`,
+  "qoderwork cn": `${BASE_PATH}/qoderwork-cn-icon.png`,
+};
+
+function getProviderLogo(provider: string): string | null {
+  const key = provider.toLowerCase().trim();
+  if (providerLocalLogos[key]) return providerLocalLogos[key];
+  for (const [k, v] of Object.entries(providerLocalLogos)) {
+    if (key.includes(k) || k.includes(key)) return v;
+  }
+  const domain = providerDomains[key] || `${key.replace(/\s+/g, "")}.com`;
+  return `${BASE_PATH}/favicon?domain=${domain}`;
+}
+
+function Avatar({ name, provider }: { name: string; provider?: string }) {
   const colors = ["#132b22", "#375f4f", "#b65b36", "#41597e", "#80683f"];
   const index = Array.from(name).reduce((sum, char) => sum + char.charCodeAt(0), 0) % colors.length;
+  const lookup = provider?.trim() || name;
+  const logoUrl = getProviderLogo(lookup);
   return (
-    <span className="service-avatar" style={{ background: colors[index] }} aria-hidden="true">
-      {name.slice(0, 1).toUpperCase()}
+    <span className="service-avatar" style={{ background: logoUrl ? "white" : colors[index], display: "inline-flex", alignItems: "center", justifyContent: "center" }} aria-hidden="true">
+      {logoUrl
+        ? <img src={logoUrl} alt="" style={{ width: "75%", height: "75%", objectFit: "contain" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+        : name.slice(0, 1).toUpperCase()}
     </span>
   );
 }
@@ -178,7 +258,7 @@ class ApiRequestError extends Error {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(`${BASE_PATH}${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
   });
@@ -214,6 +294,8 @@ export default function Home() {
   const [sortBy, setSortBy] = useState<"renewal" | "price" | "name">("renewal");
   const [modalOpen, setModalOpen] = useState(false);
   const [tagSettingsOpen, setTagSettingsOpen] = useState(false);
+  const [tagPickerId, setTagPickerId] = useState<string | null>(null);
+  const [tagPickerPos, setTagPickerPos] = useState<{ top: number; left: number } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<Omit<Subscription, "id">>(emptyForm);
   const [tagDefinitions, setTagDefinitions] = useState<TagDefinition[]>(defaultTagDefinitions);
@@ -225,6 +307,12 @@ export default function Home() {
   const [smartBusy, setSmartBusy] = useState(false);
   const [smartDraft, setSmartDraft] = useState<SmartDraft | null>(null);
   const [smartIssues, setSmartIssues] = useState<ApiIssue[]>([]);
+  const [supplementOpen, setSupplementOpen] = useState(false);
+  const [supplementTarget, setSupplementTarget] = useState("");
+  const [supplementText, setSupplementText] = useState("");
+  const [supplementBusy, setSupplementBusy] = useState(false);
+  const [supplementIssues, setSupplementIssues] = useState<ApiIssue[]>([]);
+  const [supplementDraft, setSupplementDraft] = useState<SmartDraft | null>(null);
   const [modelSettings, setModelSettings] = useState({ baseUrl: "https://api.openai.com/v1", model: "", apiKey: "" });
   const [modelStatus, setModelStatus] = useState<ModelSettingsStatus | null>(null);
   const [modelSettingsBusy, setModelSettingsBusy] = useState(false);
@@ -297,8 +385,8 @@ export default function Home() {
 
   const dueSoon = active.filter((item) => {
     const days = daysUntil(item.renewalDate);
-    return days >= 0 && days <= 30;
-  }).sort((a, b) => a.renewalDate.localeCompare(b.renewalDate));
+    return days !== null && days >= 0 && days <= 30;
+  }).sort((a, b) => (a.renewalDate || "").localeCompare(b.renewalDate || ""));
   const pendingInvoices = active.filter((item) => item.invoiceStatus === "pending").length;
   const annualized = active.reduce((sum, item) => {
     const yearlyAmount = item.price * (item.billingCycle === "monthly" ? 12 : 1);
@@ -440,6 +528,22 @@ export default function Home() {
     }
   };
 
+  const toggleTag = async (item: Subscription, tagName: string) => {
+    const newTags = item.tags.includes(tagName)
+      ? item.tags.filter((t) => t !== tagName)
+      : [...item.tags, tagName];
+    try {
+      const result = await requestJson<{ subscription: Subscription }>(`/api/web/subscriptions/${item.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ subscription: { ...item, tags: newTags } }),
+      });
+      const saved = hydrateSubscription(result.subscription);
+      setSubscriptions((current) => current.map((entry) => entry.id === item.id ? saved : entry));
+    } catch (error) {
+      handleRequestError(error, "标签更新失败");
+    }
+  };
+
   const deleteItem = async (item: Subscription) => {
     if (!window.confirm(`确定永久删除「${item.name}」吗？`)) return;
     try {
@@ -534,6 +638,51 @@ export default function Home() {
       handleRequestError(error, "草稿确认失败");
     } finally {
       setSmartBusy(false);
+    }
+  };
+
+  const submitSupplement = async () => {
+    if (!supplementTarget || !supplementText.trim()) return;
+    setSupplementBusy(true);
+    setSupplementDraft(null);
+    setSupplementIssues([]);
+    try {
+      const message = `修改 ${supplementTarget}，${supplementText.trim()}`;
+      const result = await requestJson<{ status: string; draft?: SmartDraft; issues?: ApiIssue[]; results?: unknown[] }>("/api/web/intake", {
+        method: "POST",
+        body: JSON.stringify({ message }),
+      });
+      if (result.status === "pending_confirmation" && result.draft) {
+        setSupplementDraft(result.draft);
+      } else {
+        setSupplementIssues(result.issues || [{ code: "needs_clarification", message: "信息还不够完整，请补充后再试。" }]);
+      }
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        const issues = Array.isArray(error.payload.issues) ? error.payload.issues : [];
+        setSupplementIssues(issues.length ? issues : [{ code: String(error.payload.error || "request_failed"), message: error.message }]);
+      } else {
+        setSupplementIssues([{ code: "request_failed", message: "补充信息暂时不可用，请稍后再试。" }]);
+      }
+    } finally {
+      setSupplementBusy(false);
+    }
+  };
+
+  const commitSupplementDraft = async () => {
+    if (!supplementDraft) return;
+    setSupplementBusy(true);
+    try {
+      await requestJson(`/api/web/drafts/${supplementDraft.id}/commit`, { method: "POST", body: "{}" });
+      await loadServerState(false);
+      setSupplementDraft(null);
+      setSupplementText("");
+      setSupplementOpen(false);
+      notify("补充信息已写入订阅台账");
+    } catch (error) {
+      handleRequestError(error, "补充信息写入失败");
+    } finally {
+      setSupplementBusy(false);
     }
   };
 
@@ -675,7 +824,7 @@ export default function Home() {
                 <textarea
                   ref={smartInputRef}
                   value={smartText}
-                  onChange={(event) => { setSmartText(event.target.value); setSmartIssues([]); }}
+                  onChange={(event) => { setSmartText(event.target.value); }}
                   rows={3}
                   maxLength={12000}
                   placeholder="例如：新增 Cursor Pro，每月 20 美元，9 月 8 日续费，官网信用卡，标签主力，待开票"
@@ -688,7 +837,18 @@ export default function Home() {
               </div>
               {smartIssues.length > 0 && (
                 <div className="smart-issues" role="status">
-                  {smartIssues.map((item, index) => <p key={`${item.code}-${index}`}><span>!</span>{item.message}</p>)}
+                  {smartIssues.map((item, index) => {
+                    const fieldMatch = (item.code === "missing_required" || item.code === "missing_field")
+                      ? item.message.match(/：(.+)$/) : null;
+                    const fieldKey = fieldMatch?.[1];
+                    const hint = fieldKey ? fieldHints[fieldKey] : null;
+                    return (
+                      <p key={`${item.code}-${index}`}>
+                        <span>!</span>
+                        <span>{item.message}{hint ? <small className="field-hint">（提示：{hint}）</small> : null}</span>
+                      </p>
+                    );
+                  })}
                 </div>
               )}
               {smartDraft && (
@@ -739,7 +899,9 @@ export default function Home() {
                   <div className="radar-center"><strong>{dueSoon.length}</strong><small>待续费</small></div>
                   {dueSoon.slice(0, 3).map((item, index) => {
                     const days = daysUntil(item.renewalDate);
-                    return <div key={item.id} className={`radar-dot dot-${index + 1} ${renewalTone(days)}`} title={`${item.name}：${renewalCopy(days)}`}><span>{item.name.slice(0, 1)}</span></div>;
+                    return <div key={item.id} className={`radar-dot dot-${index + 1} ${renewalTone(days)}`} title={`${item.name}：${renewalCopy(days)}`}>
+                      <Avatar name={item.name} provider={item.provider} />
+                    </div>;
                   })}
                 </div>
                 <div className="renewal-list">
@@ -747,7 +909,7 @@ export default function Home() {
                     const days = daysUntil(item.renewalDate);
                     return (
                       <button key={item.id} className="renewal-row" onClick={() => openEdit(item)}>
-                        <Avatar name={item.name} />
+                        <Avatar name={item.name} provider={item.provider} />
                         <span className="renewal-name"><strong>{item.name}</strong><small>{item.plan}</small></span>
                         <span className="renewal-date"><strong>{shortDate(item.renewalDate)}</strong><small>{renewalCopy(days)}</small></span>
                         <span className={`status-pill ${renewalTone(days)}`}>{item.autoRenew ? "自动续费" : "手动确认"}</span>
@@ -766,11 +928,12 @@ export default function Home() {
               <div><p className="section-kicker">MODEL GATE BYOK</p><h2>语义闸机模型</h2></div>
               <span className={`settings-status ${modelStatus?.configured ? "ready" : ""}`}>{modelStatus?.configured ? "已配置" : "未配置"}</span>
               <p>这里的 API Key 只用于 API Hub 的语义整理服务，与订阅台账完全分离。保存后网页和接口都不会再次回显 Key。</p>
+              {modelStatus?.configured && <p className="settings-summary">当前模型：<strong>{modelStatus.model || modelSettings.model}</strong>｜接口：<strong>{modelStatus.baseUrl || modelSettings.baseUrl}</strong>｜Key：<strong>{modelStatus.keyConfigured ? "••••••••（已配置）" : "未设置"}</strong></p>}
             </div>
             <form className="settings-form" onSubmit={saveModelSettings}>
               <label><span>OpenAI-compatible 接口地址</span><input type="url" required maxLength={500} value={modelSettings.baseUrl} onChange={(event) => setModelSettings({ ...modelSettings, baseUrl: event.target.value })} placeholder="https://provider.example/v1" /></label>
               <label><span>模型 ID</span><input required maxLength={200} value={modelSettings.model} onChange={(event) => setModelSettings({ ...modelSettings, model: event.target.value })} placeholder="例如：your-model-id" /></label>
-              <label><span>API Key</span><input type="password" minLength={8} maxLength={512} autoComplete="new-password" value={modelSettings.apiKey} onChange={(event) => setModelSettings({ ...modelSettings, apiKey: event.target.value })} placeholder={modelStatus?.source === "byok" ? "留空表示保留当前 Key" : "首次配置必须填写"} /></label>
+              <label><span>API Key</span><input type="password" minLength={8} maxLength={512} autoComplete="new-password" value={modelSettings.apiKey} onChange={(event) => setModelSettings({ ...modelSettings, apiKey: event.target.value })} placeholder={modelStatus?.source === "environment" ? "已通过环境变量配置，留空即可" : modelStatus?.source === "byok" ? "留空表示保留当前 Key" : "首次配置必须填写"} /></label>
               <div className="secret-boundary"><span>✓</span><div><strong>AES-256-GCM 加密存储</strong><p>SQLite 只保存密文、随机 IV 和认证标签；独立主密钥由 VPS 环境变量或 Docker Secret 提供，不进入数据库和 Git。</p></div></div>
               {!modelStatus?.storageAvailable && <p className="settings-warning">VPS 尚未提供 APIHUB_SECRETS_MASTER_KEY。设置可查看，但在配置主密钥前无法保存 BYOK Key。</p>}
               {modelSettingsError && <p className="settings-error" role="alert">{modelSettingsError}</p>}
@@ -807,8 +970,24 @@ export default function Home() {
                 const days = daysUntil(item.renewalDate);
                 return (
                   <article className="record-row" key={item.id}>
-                    <div className="service-cell"><Avatar name={item.name} /><span><strong>{item.name}</strong><small>{item.provider} · {item.plan || "未填写方案"}</small></span></div>
-                    <div className="tags-cell">{item.tags.length ? item.tags.map((tag) => <Tag name={tag} definitions={tagDefinitions} key={tag} />) : <span className="no-tag">无标签</span>}</div>
+                    <div className="service-cell"><Avatar name={item.name} provider={item.provider} /><span><strong>{item.name}</strong><small>{item.provider || "服务商"} · {item.plan || "订阅方案"}</small></span></div>
+                    <div className="tags-cell">
+                      {item.tags.length ? item.tags.map((tag) => <Tag name={tag} definitions={tagDefinitions} key={tag} />) : <span className="no-tag">无标签</span>}
+                      <button
+                        className={`tag-add-btn ${tagPickerId === item.id ? "open" : ""}`}
+                        onClick={(e) => {
+                          if (tagPickerId === item.id) {
+                            setTagPickerId(null);
+                            setTagPickerPos(null);
+                          } else {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setTagPickerId(item.id);
+                            setTagPickerPos({ top: rect.bottom + 4, left: rect.left });
+                          }
+                        }}
+                        aria-label="添加标签"
+                      >{tagPickerId === item.id ? "收起" : "＋"}</button>
+                    </div>
                     <div className="device-cell" title={item.loginDevice || "未记录登录设备"}><span className="cell-label">登录设备</span><strong>{item.loginDevice || "未记录"}</strong></div>
                     <div className="price-cell"><strong>{formatMoney(item.price, item.currency)}</strong><small>/{item.billingCycle === "monthly" ? "月" : "年"}</small></div>
                     <div className="date-cell"><strong>{shortDate(item.renewalDate)}</strong><small className={renewalTone(days)}>{renewalCopy(days)}</small></div>
@@ -897,6 +1076,87 @@ export default function Home() {
           </section>
         </div>
       )}
+
+      {subscriptions.length > 0 && section !== "settings" && (
+        <>
+          <button
+            className={`supplement-fab ${supplementOpen ? "active" : ""}`}
+            onClick={() => { setSupplementOpen(!supplementOpen); setSupplementIssues([]); setSupplementDraft(null); }}
+            aria-label="补充信息"
+          >{supplementOpen ? <span style={{fontSize: 24, lineHeight: 1}}>×</span> : <img src={`${BASE_PATH}/owl.png`} alt="" />}</button>
+          {supplementOpen && (
+            <div className="supplement-panel">
+              <h3>补充信息</h3>
+              <p>选择已有订阅，用自然语言描述要补充的内容。</p>
+              <label>
+                <span>目标订阅</span>
+                <select value={supplementTarget} onChange={(e) => setSupplementTarget(e.target.value)}>
+                  <option value="">请选择…</option>
+                  {subscriptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>补充内容</span>
+                <textarea
+                  value={supplementText}
+                  onChange={(e) => setSupplementText(e.target.value)}
+                  placeholder="例如：登录设备是 MacBook Pro，渠道是官网信用卡"
+                  rows={3}
+                  maxLength={12000}
+                />
+              </label>
+              {supplementIssues.length > 0 && (
+                <div className="supplement-issues">
+                  {supplementIssues.map((item, i) => {
+                    const fieldMatch = (item.code === "missing_required" || item.code === "missing_field")
+                      ? item.message.match(/：(.+)$/) : null;
+                    const hint = fieldMatch?.[1] ? fieldHints[fieldMatch[1]] : null;
+                    return <p key={`${item.code}-${i}`}>! {item.message}{hint ? `（提示：${hint}）` : ""}</p>;
+                  })}
+                </div>
+              )}
+              {supplementDraft && (
+                <div className="supplement-draft">
+                  <pre>{supplementDraft.summary}</pre>
+                  <footer>
+                    <button className="secondary-button" onClick={() => { setSupplementDraft(null); }} disabled={supplementBusy}>取消</button>
+                    <button className="primary-button" onClick={commitSupplementDraft} disabled={supplementBusy}>确认写入</button>
+                  </footer>
+                </div>
+              )}
+              {!supplementDraft && (
+                <footer>
+                  <button className="primary-button" onClick={submitSupplement} disabled={supplementBusy || !supplementTarget || !supplementText.trim()}>
+                    {supplementBusy ? "处理中…" : "提交补充"}
+                  </button>
+                </footer>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {tagPickerId && tagPickerPos && (() => {
+        const item = subscriptions.find((s) => s.id === tagPickerId);
+        if (!item) return null;
+        return (
+          <>
+            <div className="tag-picker-backdrop" onClick={() => { setTagPickerId(null); setTagPickerPos(null); }} />
+            <div className="tag-picker" style={{ position: "fixed", top: tagPickerPos.top, left: tagPickerPos.left }}>
+              {tagDefinitions.map((def) => (
+                <label key={def.name} className="tag-picker-item">
+                  <input
+                    type="checkbox"
+                    checked={item.tags.includes(def.name)}
+                    onChange={() => toggleTag(item, def.name)}
+                  />
+                  <span className="tag-dot" style={{ background: def.bg, color: def.color }}>{def.name}</span>
+                </label>
+              ))}
+            </div>
+          </>
+        );
+      })()}
 
       {toast && <div className="toast" role="status"><span>✓</span>{toast}</div>}
     </div>

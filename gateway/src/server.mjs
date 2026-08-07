@@ -75,7 +75,7 @@ function normalizeManualSubscription(input = {}) {
     price: fields.price ?? 0,
     currency: fields.currency || "CNY",
     billingCycle: fields.billingCycle || "monthly",
-    renewalDate: fields.renewalDate || "",
+    renewalDate: fields.renewalDate || null,
     channel: fields.channel || "",
     loginDevice: fields.loginDevice || "",
     tags: fields.tags || [],
@@ -92,7 +92,6 @@ function normalizeManualSubscription(input = {}) {
 function validateManualSubscription(value, allowedTags) {
   const issues = validateCommonFields(value, allowedTags);
   if (!value.name) issues.push({ code: "missing_name", message: "订阅名称不能为空" });
-  if (!value.renewalDate) issues.push({ code: "missing_renewal_date", message: "到期时间不能为空" });
   if (!["CNY", "USD", "EUR"].includes(value.currency)) issues.push({ code: "invalid_currency", message: "不支持的币种" });
   if (!["monthly", "yearly"].includes(value.billingCycle)) issues.push({ code: "invalid_billing_cycle", message: "不支持的订阅周期" });
   if (!["issued", "pending", "none"].includes(value.invoiceStatus)) issues.push({ code: "invalid_invoice_status", message: "不支持的发票状态" });
@@ -161,6 +160,32 @@ function runtimeMissing(config, db) {
   return missing;
 }
 
+const faviconCache = new Map();
+const FAVICON_SOURCES = [
+  (domain) => `https://logo.clearbit.com/${domain}`,
+  (domain) => `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
+  (domain) => `https://${domain}/favicon.ico`,
+];
+
+async function fetchFavicon(domain) {
+  const cached = faviconCache.get(domain);
+  if (cached && cached.expiresAt > Date.now()) return cached;
+  for (const buildUrl of FAVICON_SOURCES) {
+    try {
+      const res = await fetch(buildUrl(domain), { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) continue;
+      const contentType = res.headers.get("content-type") || "image/png";
+      if (!contentType.startsWith("image/")) continue;
+      const buffer = Buffer.from(await res.arrayBuffer());
+      if (buffer.length < 50) continue;
+      const entry = { buffer, contentType, expiresAt: Date.now() + 86_400_000 };
+      faviconCache.set(domain, entry);
+      return entry;
+    } catch { /* try next source */ }
+  }
+  throw new Error("all_sources_failed");
+}
+
 export function createGatewayServer({ config, db, parseModel = parseWithModel, fetchExchangeRates = fetchEcbRates, now = () => new Date() }) {
   let exchangeRateRefresh = null;
 
@@ -195,6 +220,23 @@ export function createGatewayServer({ config, db, parseModel = parseWithModel, f
           missingConfiguration: missing,
           requestId,
         });
+      }
+
+      if (request.method === "GET" && url.pathname === "/favicon") {
+        const domain = url.searchParams.get("domain");
+        if (!domain || !/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain)) return sendJson(response, 400, { error: "invalid_domain", requestId });
+        try {
+          const { buffer, contentType } = await fetchFavicon(domain);
+          response.writeHead(200, {
+            "Content-Type": contentType,
+            "Cache-Control": "public, max-age=86400",
+            "Content-Length": buffer.length,
+          });
+          response.end(buffer);
+        } catch {
+          return sendJson(response, 404, { error: "favicon_not_found", requestId });
+        }
+        return;
       }
 
       if (url.pathname.startsWith("/v1/web/")) {
