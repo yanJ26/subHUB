@@ -357,7 +357,7 @@ export default function Home() {
         setAuthenticated(session.authenticated);
         if (session.authenticated) await loadServerState();
       } catch {
-        if (activeRequest) setLoginError("暂时无法连接 API Hub 服务");
+        if (activeRequest) setLoginError("暂时无法连接 apiHUB 服务");
       } finally {
         if (activeRequest) setReady(true);
       }
@@ -746,7 +746,7 @@ export default function Home() {
       <section className="login-card">
         <div className="brand-mark login-mark">A</div>
         <p className="section-kicker">PRIVATE SUBSCRIPTION LEDGER</p>
-        <h1>登录 API Hub</h1>
+        <h1>登录 apiHUB</h1>
         <p className="login-copy">这是部署在你 VPS 上的私人订阅台账。请输入站点密码继续。</p>
         <form onSubmit={submitLogin}>
           <label><span>站点密码</span><input type="password" autoComplete="current-password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} required /></label>
@@ -763,7 +763,7 @@ export default function Home() {
       <aside className="sidebar">
         <div className="brand-block">
           <div className="brand-mark">A</div>
-          <div><strong>API Hub</strong><span>SUBSCRIPTION INDEX</span></div>
+          <div><strong>apiHUB</strong><span>SUBSCRIPTION INDEX</span></div>
         </div>
 
         <nav className="main-nav" aria-label="主要导航">
@@ -927,7 +927,7 @@ export default function Home() {
             <div className="settings-intro">
               <div><p className="section-kicker">MODEL GATE BYOK</p><h2>语义闸机模型</h2></div>
               <span className={`settings-status ${modelStatus?.configured ? "ready" : ""}`}>{modelStatus?.configured ? "已配置" : "未配置"}</span>
-              <p>这里的 API Key 只用于 API Hub 的语义整理服务，与订阅台账完全分离。保存后网页和接口都不会再次回显 Key。</p>
+              <p>这里的 API Key 只用于 apiHUB 的语义整理服务，与订阅台账完全分离。保存后网页和接口都不会再次回显 Key。</p>
               {modelStatus?.configured && <p className="settings-summary">当前模型：<strong>{modelStatus.model || modelSettings.model}</strong>｜接口：<strong>{modelStatus.baseUrl || modelSettings.baseUrl}</strong>｜Key：<strong>{modelStatus.keyConfigured ? "••••••••（已配置）" : "未设置"}</strong></p>}
             </div>
             <form className="settings-form" onSubmit={saveModelSettings}>
@@ -1013,7 +1013,7 @@ export default function Home() {
       <nav className="mobile-nav" aria-label="移动端导航">
         <button className={section === "overview" ? "active" : ""} onClick={() => setSection("overview")}><span>⌂</span>总览</button>
         <button className={section === "subscriptions" ? "active" : ""} onClick={() => setSection("subscriptions")}><span>▤</span>订阅</button>
-        <button className="mobile-add" onClick={openCreate} aria-label="添加订阅">＋</button>
+        <button className="mobile-add" onClick={() => { setSection("overview"); window.setTimeout(() => smartInputRef.current?.focus(), 0); }} aria-label="智能录入">◇</button>
         <button className={section === "invoices" ? "active" : ""} onClick={() => setSection("invoices")}><span>▧</span>发票</button>
         <button className={section === "archived" ? "active" : ""} onClick={() => setSection("archived")}><span>□</span>归档</button>
       </nav>

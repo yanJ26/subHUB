@@ -7,16 +7,16 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
-  const title = "API Hub｜订阅管理台";
+  const title = "apiHUB｜订阅管理台";
   const description = "轻量、私密的 API 订阅到期、费用、渠道、标签与发票管理工具。订阅记录不会保存任何 API 密钥。";
 
   return {
     title,
     description,
     manifest: "/manifest.webmanifest",
-    applicationName: "API Hub",
-    appleWebApp: { capable: true, statusBarStyle: "default", title: "API Hub" },
-    openGraph: { title, description, type: "website", images: [{ url: `${origin}/og.png`, width: 1732, height: 908, alt: "API Hub 订阅管理台" }] },
+    applicationName: "apiHUB",
+    appleWebApp: { capable: true, statusBarStyle: "default", title: "apiHUB" },
+    openGraph: { title, description, type: "website", images: [{ url: `${origin}/og.png`, width: 1732, height: 908, alt: "apiHUB 订阅管理台" }] },
     twitter: { card: "summary_large_image", title, description, images: [`${origin}/og.png`] },
   };
 }

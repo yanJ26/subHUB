@@ -81,3 +81,9 @@ Web UI 与 OpenClaw 现已使用同一个 Gateway SQLite。浏览器通过同源
 - 模型 Key 永不回显、永不写入审计日志；SQLite 与主密钥备份必须分开保存。
 - 支付渠道只记录描述与尾号，不记录完整银行卡号或验证码。
 - 公网部署必须启用 HTTPS、强站点密码、随机会话密钥、SQLite 备份和访问控制。
+
+## 推送记录
+
+| 时间（GMT+8） | 来源 | 内容 |
+| --- | --- | --- |
+| 2026-08-27 15:54 | vpsqh（lhins-i3thwkg9） | 品牌名统一：全站 "API Hub" → "apiHUB"（`app/layout.tsx`、`app/page.tsx`、`public/manifest.webmanifest`）；移动端底部 "＋" 按钮改为聚焦智能录入（原为打开新建表单）。与 VPS 线上运行版本对齐。 |
