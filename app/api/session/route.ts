@@ -3,6 +3,7 @@ import {
   createSessionCookie,
   hasOwnerSession,
   isCrossSiteMutation,
+  isOwnerAuthConfigured,
   passwordMatches,
 } from "../_lib/owner-session";
 
@@ -30,11 +31,13 @@ function currentAttempt(request: Request) {
 }
 
 export async function GET(request: Request) {
-  return Response.json({ authenticated: await hasOwnerSession(request) }, { headers: noStoreHeaders });
+  const configured = isOwnerAuthConfigured();
+  return Response.json({ configured, authenticated: configured && await hasOwnerSession(request) }, { headers: noStoreHeaders });
 }
 
 export async function POST(request: Request) {
   if (isCrossSiteMutation(request)) return Response.json({ error: "forbidden" }, { status: 403, headers: noStoreHeaders });
+  if (!isOwnerAuthConfigured()) return Response.json({ error: "owner_auth_not_configured" }, { status: 503, headers: noStoreHeaders });
   const { key, attempt } = currentAttempt(request);
   if (attempt.count >= MAX_LOGIN_ATTEMPTS) {
     return Response.json(

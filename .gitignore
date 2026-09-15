@@ -41,9 +41,13 @@ gateway-dev.*.log
 /build/
 /.wrangler/
 /outputs/
+/exports/
 /work/
 /.pnpm-store/
 /dev-server.*.log
 *.tsbuildinfo
 /data/
 /gateway/data/
+*.sqlite
+*.sqlite-*
+/secrets/

@@ -10,8 +10,8 @@ async function proxy(request: Request, context: RouteContext) {
     return Response.json({ error: "forbidden" }, { status: 403, headers: { "Cache-Control": "no-store" } });
   }
 
-  const internalToken = process.env.APIHUB_WEB_INTERNAL_TOKEN?.trim();
-  const gatewayBase = (process.env.APIHUB_GATEWAY_INTERNAL_URL || "http://127.0.0.1:8787/v1/web").replace(/\/$/, "");
+  const internalToken = process.env.SUBHUB_WEB_INTERNAL_TOKEN?.trim();
+  const gatewayBase = (process.env.SUBHUB_GATEWAY_INTERNAL_URL || "http://127.0.0.1:8790/v1/web").replace(/\/$/, "");
   if (!internalToken) {
     return Response.json({ error: "gateway_not_configured" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
@@ -49,4 +49,5 @@ async function proxy(request: Request, context: RouteContext) {
 export const GET = proxy;
 export const POST = proxy;
 export const PUT = proxy;
+export const PATCH = proxy;
 export const DELETE = proxy;

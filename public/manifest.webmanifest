@@ -1,7 +1,7 @@
 {
-  "name": "apiHUB 订阅管理台",
-  "short_name": "apiHUB",
-  "description": "管理 API 订阅到期、费用、渠道、标签与发票；不保存任何 API 密钥。",
+  "name": "subHUB 数字服务与资产控制台",
+  "short_name": "subHUB",
+  "description": "统一管理订阅、API、Agent、域名、设备、部署、费用与使用权益；不保存业务凭据。",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f4f6f2",

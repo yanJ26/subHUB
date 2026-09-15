@@ -1,89 +1,104 @@
-# API Hub
+# subHUB
 
-一个只管理 **API 订阅资料** 的轻量 Web 应用。它记录到期时间、价格、月付/年付、订阅途径、发票状态、发票链接、提醒时间、标签和备注；**订阅记录不设计、不提供、也不保存 API Key、Token 或 Secret 字段**。语义闸机需要的模型 Key 可在独立 BYOK 设置仓库中加密保存。
+subHUB 是一个私有的个人数字服务、使用权益与基础设施控制台。它把大模型官方订阅、按量 API、Token Plan、Agent 工具、域名、设备、VPS、部署实例和访问入口放进同一套关系模型，但费用、资产与凭据仍保持清晰边界。
 
-## 第一版能力
+## 产品原则
 
-- 订阅总览：月均成本、人民币年化支出、30 天内到期、待处理发票
-- 续费雷达：按到期紧迫度呈现近期订阅
-- 完整增删改查、搜索、标签筛选和排序
-- 月付/年付与 CNY、USD、EUR 多币种记录；原价按币种展示，人民币年化金额使用每月缓存的参考汇率估算
-- 自动续费状态、提前提醒天数、支付渠道、登录设备与发票台账
-- 发票与报销合并展示，报销进度使用自由备注记录，不强制标准化模板
-- 标签设置：默认仅保留主力、常用、弃用，可新增、重命名、换色或删除
-- JSON 导入/导出，方便迁移和离线备份
-- 单用户密码登录、HttpOnly 服务端会话与 VPS SQLite 跨设备同步
-- Web 智能文本录入：自然语言先生成草稿，人工确认后再写入
-- 模型 BYOK 设置：登录后新增或替换模型 Key，AES-256-GCM 加密且永不回显
-- 响应式布局与 Web App Manifest，为后续安卓封装预留入口
-- OpenClaw 私有接入 Gateway、独立大模型语义闸机、确定性策略校验与一次性确认流程
+- **权益是费用真相**：同一项订阅可以供多个 Agent、应用、API 入口或设备使用，成本只计算一次。
+- **服务与资产分开**：Cloudflare、注册商或 WorkBuddy 是外部产品；`subhub.example.com`、电脑和 VPS 是所有者控制的资产。
+- **生命周期分开**：续费、到期和额度重置分别记录，避免用一个日期表达三种含义。
+- **来源可追溯**：apiHUB、agentHUB、buddyHUB 只作为只读迁移来源，每条迁移记录保留来源 ID 和内容哈希。
+- **密钥隔离**：业务数据只保存凭据标签，不接受或保存真实 Key、Token、密码与 Cookie。
+- **近似但诚实**：用量快照和效率评价允许缺失及低置信度，不制造精确 Token 会计。
 
-## 数据与隐私
+## 当前能力
 
-订阅、标签、草稿和审计记录统一保存在 VPS Gateway 的 SQLite 数据库中。浏览器 `localStorage` 仅用于从旧版进行一次迁移，不再是权威数据源。大模型会接收用于解析的自然语言，但 Gateway 不把原文写入数据库，只保留 SHA-256、状态和结构化结果。BYOK 模型 Key 经过 AES-256-GCM 加密后存入独立设置表，解密主密钥必须单独保存在 VPS 环境变量或 Docker Secret 中。
+- 产品与服务目录，多角色、采用状态和模型/能力清单。
+- 订阅、按量、Token 包、试用、自托管、套餐内含及一次性权益。
+- 多币种价格、人民币月度等价、续费/到期雷达和 ECB 参考汇率缓存。
+- 发票号码、状态、链接、购买渠道、提醒天数和标签。
+- 域名、设备、服务器、账号、仓库、网站和工作流资产。
+- Agent/服务部署实例、运行节点、版本、模型、Runtime 和安装方式。
+- Web、移动端、桌面端、CLI、API、Bot、消息及工作流入口。
+- 额度规则、不定期快照、定性效率评价与重要工作记录。
+- Owner 登录、Gateway 私有网络、SQLite WAL、乐观修订号、审计与安全导出。
+- apiHUB / agentHUB / buddyHUB 三源迁移预览、冲突确认与来源映射。
+- 手工维护与三源迁移是当前信息入口；自动采集、消息入口和第三方适配器留待后续单独设计。
 
-第一版的“发票”包含开票状态、发票号码与文件链接。实际文件上传将在 VPS 后端阶段加入，避免在浏览器本地塞入大文件。
+## 领域关系
 
-## 本地运行
+```text
+Provider
+  └─ CatalogItem / Offering
+       ├─ Models & Capabilities
+       ├─ Entitlements ── Invoices / Renewal / Expiry / Quota
+       └─ AccessSurfaces
 
-需要 Node.js 22+ 与 pnpm。
+Assets (Domain / Device / Server / Account / Website)
+  └─ Deployments ── CatalogItem
+
+UsageLinks connect Entitlement, AccessSurface, Asset, Deployment and consumer Item.
+```
+
+## 技术架构
+
+- Web：React 19 + vinext。
+- Gateway：Node.js 24 原生 HTTP 服务，通过私有 Bearer 通道为 Web 提供数据访问。
+- 数据：SQLite WAL，采用版本化 SQL migration 和规范化关系表。
+- 安全：12 小时 Owner 会话、登录限速、2 MB 导入限制、敏感字段扫描、修订冲突控制与审计日志。
+
+## 本地开发
+
+需要 Node.js 24 和 pnpm 11：
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-打开 `http://localhost:3000`。
+未配置 Owner 密码时，Web 显示明确标记的预览数据，不写入数据库。完整本机服务需要分别启动 Gateway 和 Web，并使两者使用同一个 `SUBHUB_WEB_INTERNAL_TOKEN`。
 
-## 构建
-
-```bash
-pnpm build
-pnpm start
+```powershell
+pwsh gateway/scripts/start-local.ps1
+pwsh scripts/start-web-local.ps1
 ```
 
-## Docker / VPS 起步
+## 验证
 
-仓库包含 `Dockerfile` 与 `docker-compose.yml`：
+```bash
+pnpm test
+pnpm lint
+```
+
+测试覆盖规范化存储、迁移字段保留和 ID 重映射、冲突阻断、敏感信息扫描、HTTP 认证边界、页面构建与渲染。
+
+## Docker / VPS
+
+复制 `.env.example` 为未纳入 Git 的 `.env`，生成唯一的 Owner 密码、会话 Secret 和内部 Token，然后：
 
 ```bash
 docker compose up -d --build
 ```
 
-部署前必须在未提交到 Git 的 `.env` 中设置一个 Base64 编码的 32 字节 `APIHUB_SECRETS_MASTER_KEY`；生成与备份方法见 [模型 BYOK 设置](docs/byok-model-settings.md)。
+- Web：宿主机 `3003`
+- Gateway：宿主机回环 `127.0.0.1:8790`
+- 推荐反向代理路径：`/code/subhub`
+- SQLite：Docker 命名卷 `subhub-data`
 
-容器默认监听 `3000` 端口。生产环境建议在前面配置 Caddy 或 Nginx，并启用 HTTPS。
+Gateway 不应直接暴露到公网。
 
-## 后续路线
+当前里程碑不接入任何自动信息来源。未来若增加消息、网页或其他外部入口，将作为独立适配层建设，不改变核心领域模型，也不能绕过 Gateway 的认证、校验与审计边界。
 
-1. 发票文件存储：当前仅记录状态、号码和 HTTPS 文件链接。
-2. 提醒服务：邮件、Telegram 或 Web Push 到期提醒。
-3. 审计与预算：价格变更历史、团队成本中心、报销状态、年度预算。
-4. Android：用 Capacitor 或原生壳封装，复用 Gateway；语音由 Android 系统或输入法转为文字。
+## 三个旧项目
 
-## OpenClaw 与大模型闸机
+subHUB 以 apiHUB 的工程基线开始建设，同时参考另外两个项目。三个仓库保持独立，不删除、不覆盖，也不作为 subHUB 的运行时依赖：
 
-项目已经包含一个独立的 `gateway/` 服务，以及只向 OpenClaw 暴露单一提交工具的私有插件。模型只能生成候选 JSON，正式写入必须同时通过确定性策略和所有者一次性确认。
-
-- [双闸机架构](docs/openclaw-apihub-architecture.md)
-- [OpenClaw Agent API](docs/openclaw-agent-api.md)
-- [大模型语义闸机](docs/llm-semantic-gate.md)
-- [VPS 与 OpenClaw 部署](docs/vps-openclaw-deployment.md)
-- [输入渠道与 Web 智能录入](docs/input-channels-and-web-intake.md)
-- [模型 BYOK 设置与密钥边界](docs/byok-model-settings.md)
-- [汇率每月刷新、缓存与降级](docs/exchange-rate-cache.md)
-
-Web UI 与 OpenClaw 现已使用同一个 Gateway SQLite。浏览器通过同源会话代理访问 Web API，Gateway 的 8787 端口不应暴露到公网。
-
-## 安全约束
-
-- 永远不要在名称、备注、渠道、发票链接、智能录入文本等订阅字段中粘贴 API Key 或 Token；模型 Key 只能从登录后的“模型设置”页提交。
-- 模型 Key 永不回显、永不写入审计日志；SQLite 与主密钥备份必须分开保存。
-- 支付渠道只记录描述与尾号，不记录完整银行卡号或验证码。
-- 公网部署必须启用 HTTPS、强站点密码、随机会话密钥、SQLite 备份和访问控制。
-
-## 推送记录
-
-| 时间（GMT+8） | 来源 | 内容 |
+| 来源 | 基线 | 在 subHUB 中的主要作用 |
 | --- | --- | --- |
-| 2026-08-27 15:54 | vpsqh（lhins-i3thwkg9） | 品牌名统一：全站 "API Hub" → "apiHUB"（`app/layout.tsx`、`app/page.tsx`、`public/manifest.webmanifest`）；移动端底部 "＋" 按钮改为聚焦智能录入（原为打开新建表单）。与 VPS 线上运行版本对齐。 |
+| `yanJ26/apiHUB` | `9cb7653` | 安全、会话、账务、汇率、发票、标签与 Gateway 基石 |
+| `yanJ26/agentHUB` | `8a4ed37` | Agent、设备、部署、入口、重要任务与活跃度模型 |
+| `yanJ26/buddyHUB` | `5803521` | 权益优先目录、额度快照、评价和迁移预览理念 |
+
+迁移时优先采用 apiHUB 的费用与发票字段、agentHUB 的运行拓扑字段；buddyHUB 中的非重复快照和评价按来源导入。真实 Key、Token、密码和 Cookie 永不迁移。
+
+更多设计决策见 [`docs/adr/0001-subhub-foundation.md`](docs/adr/0001-subhub-foundation.md)、[`docs/domain-model.md`](docs/domain-model.md) 和 [`docs/migration/legacy-sources.md`](docs/migration/legacy-sources.md)。

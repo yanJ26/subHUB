@@ -1,16 +1,17 @@
 {
-  "name": "api-hub-subscription-manager",
+  "name": "subhub",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@11.9.0",
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "pnpm run build && node --test tests/rendered-html.test.mjs && node --test gateway/tests/*.test.mjs",
+    "test": "pnpm run typecheck && pnpm run build && node --test tests/rendered-html.test.mjs && node --test gateway/tests/*.test.mjs",
+    "typecheck": "tsc --noEmit",
     "test:gateway": "node --test gateway/tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"

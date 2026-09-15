@@ -1,7 +1,5 @@
-import type { NextConfig } from "next";
+const configuredBasePath = process.env.NEXT_PUBLIC_BASE_PATH?.trim().replace(/\/$/, "") || "";
 
-const nextConfig: NextConfig = {
-  basePath: "/code/apihub",
-};
+const nextConfig = { basePath: configuredBasePath };
 
 export default nextConfig;

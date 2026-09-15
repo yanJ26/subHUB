@@ -1,10 +1,19 @@
-const COOKIE_NAME = "apihub_session";
+const COOKIE_NAME = "subhub_session";
 const SESSION_SECONDS = 12 * 60 * 60;
 
-function getRequiredSecret(name: "APIHUB_WEB_PASSWORD" | "APIHUB_WEB_SESSION_SECRET") {
+function configuredBasePath() {
+  const value = process.env.NEXT_PUBLIC_BASE_PATH?.trim().replace(/\/$/, "") || "";
+  return value || "/";
+}
+
+function getRequiredSecret(name: "SUBHUB_WEB_PASSWORD" | "SUBHUB_WEB_SESSION_SECRET") {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name}_not_configured`);
   return value;
+}
+
+export function isOwnerAuthConfigured() {
+  return Boolean(process.env.SUBHUB_WEB_PASSWORD?.trim() && process.env.SUBHUB_WEB_SESSION_SECRET?.trim());
 }
 
 function encodeBase64Url(value: string | Uint8Array) {
@@ -23,7 +32,7 @@ function decodeBase64Url(value: string) {
 async function hmac(value: string) {
   const key = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(getRequiredSecret("APIHUB_WEB_SESSION_SECRET")),
+    new TextEncoder().encode(getRequiredSecret("SUBHUB_WEB_SESSION_SECRET")),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
@@ -49,7 +58,7 @@ function readCookie(request: Request, name: string) {
 
 export async function passwordMatches(candidate: unknown) {
   if (typeof candidate !== "string" || candidate.length > 512) return false;
-  const expected = getRequiredSecret("APIHUB_WEB_PASSWORD");
+  const expected = getRequiredSecret("SUBHUB_WEB_PASSWORD");
   const [left, right] = await Promise.all([hmac(`password:${candidate}`), hmac(`password:${expected}`)]);
   return constantTimeEqual(left, right);
 }
@@ -58,15 +67,16 @@ export async function createSessionCookie() {
   const payload = encodeBase64Url(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + SESSION_SECONDS }));
   const signature = encodeBase64Url(await hmac(payload));
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  return `${COOKIE_NAME}=${payload}.${signature}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_SECONDS}${secure}`;
+  return `${COOKIE_NAME}=${payload}.${signature}; Path=${configuredBasePath()}; HttpOnly; SameSite=Strict; Max-Age=${SESSION_SECONDS}${secure}`;
 }
 
 export function clearSessionCookie() {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  return `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure}`;
+  return `${COOKIE_NAME}=; Path=${configuredBasePath()}; HttpOnly; SameSite=Strict; Max-Age=0${secure}`;
 }
 
 export async function hasOwnerSession(request: Request) {
+  if (!isOwnerAuthConfigured()) return false;
   const token = readCookie(request, COOKIE_NAME);
   if (!token) return false;
   const [payload, signature, extra] = token.split(".");
