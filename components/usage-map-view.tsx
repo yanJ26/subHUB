@@ -1,13 +1,13 @@
 import { roleLabels, type WorkspaceState } from "@/lib/domain";
 
-export function UsageMapView({ state, onOpenItem }: { state: WorkspaceState; onOpenItem: (id: string) => void }) {
+export function UsageMapView({ state, onOpenItem, onAddLink, onAddSurface, onEditLink }: { state: WorkspaceState; onOpenItem: (id: string) => void; onAddLink: () => void; onAddSurface: () => void; onEditLink: (id: string) => void }) {
   const itemMap = new Map(state.catalog.map((item) => [item.id, item]));
   const providerMap = new Map(state.providers.map((provider) => [provider.id, provider]));
   const surfaceMap = new Map(state.accessSurfaces.map((surface) => [surface.id, surface]));
 
   return (
     <div className="view-stack">
-      <section className="section-intro"><div><span className="kicker">WHERE CAN I USE AI?</span><h2>使用地图</h2><p>从购买权益出发，查看它通过哪些 API、软件、Agent、设备和工作流产生价值。</p></div><button className="primary-button">＋ 建立关系</button></section>
+      <section className="section-intro"><div><span className="kicker">WHERE CAN I USE AI?</span><h2>使用地图</h2><p>从购买权益出发，查看它通过哪些 API、软件、Agent、设备和工作流产生价值。</p></div><span className="section-actions-inline"><button className="secondary-button" onClick={onAddSurface}>＋ 使用入口</button><button className="primary-button" onClick={onAddLink}>＋ 建立关系</button></span></section>
       <section className="usage-map-grid">
         {state.entitlements.map((entitlement) => {
           const source = itemMap.get(entitlement.itemId);
@@ -20,7 +20,7 @@ export function UsageMapView({ state, onOpenItem }: { state: WorkspaceState; onO
                 {links.map((link) => {
                   const consumer = link.consumerItemId ? itemMap.get(link.consumerItemId) : null;
                   const surface = link.accessSurfaceId ? surfaceMap.get(link.accessSurfaceId) : null;
-                  return <div key={link.id}><span>→</span><section><strong>{link.label}</strong><small>{consumer ? `${consumer.name} · ${consumer.roles.map((role) => roleLabels[role]).join("/")}` : surface?.name || "使用入口"}</small>{surface?.device && <em>{surface.device}</em>}</section></div>;
+                  return <div key={link.id}><span>→</span><section><strong>{link.label}</strong><small>{consumer ? `${consumer.name} · ${consumer.roles.map((role) => roleLabels[role]).join("/")}` : surface?.name || "使用入口"}</small>{surface?.device && <em>{surface.device}</em>}<button className="record-edit" onClick={() => onEditLink(link.id)}>编辑关系</button></section></div>;
                 })}
                 {!links.length && <div className="empty-block">尚未记录使用位置。</div>}
               </div>

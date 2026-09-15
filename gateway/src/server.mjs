@@ -4,8 +4,9 @@ import { pathToFileURL } from "node:url";
 import { SubHubDatabase } from "./database.mjs";
 import { loadConfig, validateRuntimeConfig } from "./config.mjs";
 import { fetchEcbRates } from "./exchange-rates.mjs";
-import { previewLegacyMigration } from "./migration.mjs";
-import { findLikelySecretPaths, verifyBearer } from "./security.mjs";
+import { mergeMigrationWorkspace, previewLegacyMigration, resolveMigrationConflicts } from "./migration.mjs";
+import { findLikelySecretPaths, sha256, verifyBearer } from "./security.mjs";
+import { assertExpectedRevision, assertWorkspaceState } from "./validation.mjs";
 
 const adoptionStatuses = new Set(["active", "trial", "considering", "unused", "paused", "retired"]);
 
@@ -15,6 +16,7 @@ function sendJson(response, status, body) {
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
+    ...(body?.requestId ? { "X-Request-ID": body.requestId } : {}),
   });
   response.end(JSON.stringify(body));
 }
@@ -32,8 +34,20 @@ async function readBody(request, maxBodyBytes) {
   if (!chunks.length) return { raw: "", json: {} };
   try {
     const raw = Buffer.concat(chunks).toString("utf8");
-    return { raw, json: JSON.parse(raw) };
-  } catch {
+    const json = JSON.parse(raw);
+    const stack = [{ value: json, depth: 0 }];
+    let nodes = 0;
+    while (stack.length) {
+      const current = stack.pop();
+      nodes += 1;
+      if (current.depth > 40 || nodes > 50_000) throw new Error("request_too_complex");
+      if (current.value && typeof current.value === "object") {
+        for (const child of Object.values(current.value)) stack.push({ value: child, depth: current.depth + 1 });
+      }
+    }
+    return { raw, json };
+  } catch (error) {
+    if (error instanceof Error && error.message === "request_too_complex") throw error;
     throw new Error("invalid_json");
   }
 }
@@ -58,8 +72,8 @@ function safeImportedData(value) {
 }
 
 function statusForError(error) {
-  if (["invalid_json", "invalid_workspace_state", "invalid_apihub_export", "invalid_agenthub_export", "invalid_buddyhub_export", "missing_required_fields"].includes(error.message)) return 400;
-  if (error.message === "revision_conflict") return 409;
+  if (["invalid_json", "request_too_complex", "invalid_workspace_state", "invalid_backup", "invalid_apihub_export", "invalid_agenthub_export", "invalid_buddyhub_export", "missing_required_fields", "expected_revision_required"].includes(error.message)) return 400;
+  if (["revision_conflict", "migration_preview_mismatch", "restore_preview_mismatch"].includes(error.message)) return 409;
   if (error.message === "migration_conflicts_unresolved") return 422;
   if (error.message === "likely_secret_detected") return 422;
   if (error.message === "request_too_large") return 413;
@@ -89,12 +103,61 @@ export function createGateway(config = loadConfig(), database, { fetchExchangeRa
     return exchangeRateRefresh;
   }
 
+  function migrationToken(sources, revision) {
+    return sha256(`${revision}\u0000${JSON.stringify(sources)}`);
+  }
+
+  function migrationPreview(sources) {
+    const revision = db.getRevision();
+    const imported = previewLegacyMigration(sources);
+    const merged = mergeMigrationWorkspace(db.getWorkspace(), imported.workspace);
+    const conflicts = [...imported.conflicts, ...merged.conflicts];
+    return {
+      workspace: merged.workspace,
+      warnings: [...imported.warnings, ...merged.warnings],
+      conflicts,
+      stats: imported.stats,
+      canCommit: conflicts.every((entry) => entry.severity !== "blocking"),
+      targetRevision: revision,
+      previewToken: migrationToken(sources, revision),
+    };
+  }
+
+  function requireConflictResolutions(preview, resolutions) {
+    const allowed = new Set(["keep_both", "keep_existing", "use_incoming"]);
+    const missing = preview.conflicts.filter((entry) => entry.severity === "blocking" && !allowed.has(resolutions?.[entry.id]));
+    if (missing.length) throw new Error("migration_conflicts_unresolved");
+  }
+
   const server = http.createServer(async (request, response) => {
     const requestId = randomUUID();
+    const startedAt = performance.now();
+    let errorCode;
     const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+    response.once("finish", () => console.log(JSON.stringify({
+      timestamp: new Date().toISOString(), service: "subhub-gateway", requestId,
+      method: request.method, path: url.pathname, status: response.statusCode,
+      durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+      ...(errorCode ? { errorCode } : {}),
+    })));
     try {
       if (request.method === "GET" && url.pathname === "/health") {
         return sendJson(response, 200, { ok: true, service: "subhub-gateway", catalogItems: db.countCatalogItems(), revision: db.getRevision(), requestId });
+      }
+
+      if (url.pathname.startsWith("/v1/internal/") && verifyBearer(request.headers.authorization, config.webInternalToken)) {
+        if (request.method === "POST" && url.pathname === "/v1/internal/login-attempts/reserve") {
+          const body = await readJson(request, config.maxBodyBytes);
+          requireFields(body, ["clientKey"]);
+          return sendJson(response, 200, { ...db.reserveLoginAttempt(body.clientKey), requestId });
+        }
+        if (request.method === "POST" && url.pathname === "/v1/internal/login-attempts/clear") {
+          const body = await readJson(request, config.maxBodyBytes);
+          requireFields(body, ["clientKey"]);
+          db.clearLoginAttempts(body.clientKey);
+          return sendJson(response, 200, { ok: true, requestId });
+        }
+        return sendJson(response, 404, { error: "not_found", requestId });
       }
 
       if (!url.pathname.startsWith("/v1/web/") || !verifyBearer(request.headers.authorization, config.webInternalToken)) {
@@ -111,19 +174,63 @@ export function createGateway(config = loadConfig(), database, { fetchExchangeRa
         const body = await readJson(request, config.maxBodyBytes);
         requireFields(body, ["workspace"]);
         safeImportedData(body.workspace);
+        assertExpectedRevision(body.expectedRevision);
+        assertWorkspaceState(body.workspace);
         const workspace = db.replaceWorkspace(body.workspace, {
-          actor: "web:owner", summary: textSummary(body.summary, "Owner workspace update"), expectedRevision: body.expectedRevision,
+          actor: "web:owner", summary: "Owner workspace update", expectedRevision: body.expectedRevision,
         });
         return sendJson(response, 200, { workspace, revision: db.getRevision(), requestId });
       }
 
       if (request.method === "POST" && url.pathname === "/v1/web/import") {
         const body = await readJson(request, config.maxBodyBytes);
-        requireFields(body, ["workspace"]);
-        safeImportedData(body.workspace);
-        const workspace = db.replaceWorkspace(body.workspace, {
+        requireFields(body, ["backup"]);
+        const workspaceState = body.backup?.workspace;
+        if (body.backup?.product !== "subHUB" || body.backup?.schemaVersion !== 1 || !workspaceState) throw new Error("invalid_backup");
+        safeImportedData(workspaceState);
+        assertExpectedRevision(body.expectedRevision);
+        assertWorkspaceState(workspaceState);
+        const workspace = db.replaceWorkspace(workspaceState, {
           actor: "web:owner", summary: "Owner-confirmed subHUB backup import", expectedRevision: body.expectedRevision,
         });
+        return sendJson(response, 200, { workspace, revision: db.getRevision(), requestId });
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/web/backup") {
+        return sendJson(response, 200, {
+          product: "subHUB", schemaVersion: 1, exportedAt: new Date().toISOString(),
+          revision: db.getRevision(), workspace: db.getWorkspace(), exchangeRates: db.getExchangeRates(), requestId,
+        });
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/web/audit") {
+        return sendJson(response, 200, { auditLogs: db.getAuditLogs(Number(url.searchParams.get("limit") || 100)), requestId });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/web/restore/preview") {
+        const body = await readJson(request, config.maxBodyBytes);
+        const backup = body.backup;
+        if (backup?.product !== "subHUB" || backup?.schemaVersion !== 1 || !backup.workspace) throw new Error("invalid_backup");
+        safeImportedData(backup.workspace);
+        assertWorkspaceState(backup.workspace);
+        const revision = db.getRevision();
+        const restoreToken = sha256(`${revision}\u0000${JSON.stringify(backup.workspace)}`);
+        return sendJson(response, 200, {
+          restoreToken, targetRevision: revision,
+          stats: Object.fromEntries(Object.entries(backup.workspace).filter(([, value]) => Array.isArray(value)).map(([key, value]) => [key, value.length])),
+          requestId,
+        });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/web/restore/commit") {
+        const body = await readJson(request, config.maxBodyBytes);
+        const backup = body.backup;
+        if (backup?.product !== "subHUB" || backup?.schemaVersion !== 1 || !backup.workspace) throw new Error("invalid_backup");
+        safeImportedData(backup.workspace);
+        assertWorkspaceState(backup.workspace);
+        const revision = assertExpectedRevision(body.expectedRevision);
+        if (body.restoreToken !== sha256(`${revision}\u0000${JSON.stringify(backup.workspace)}`)) throw new Error("restore_preview_mismatch");
+        const workspace = db.replaceWorkspace(backup.workspace, { actor: "restore:owner", summary: "Owner-confirmed JSON restore", expectedRevision: revision });
         return sendJson(response, 200, { workspace, revision: db.getRevision(), requestId });
       }
 
@@ -131,17 +238,23 @@ export function createGateway(config = loadConfig(), database, { fetchExchangeRa
         const body = await readJson(request, config.maxBodyBytes);
         if (body.apiHub === undefined && body.agentHub === undefined && body.buddyHub === undefined) throw new Error("missing_required_fields");
         safeImportedData(body);
-        return sendJson(response, 200, { ...previewLegacyMigration(body), requestId });
+        const sources = { apiHub: body.apiHub, agentHub: body.agentHub, buddyHub: body.buddyHub };
+        return sendJson(response, 200, { ...migrationPreview(sources), requestId });
       }
 
       if (request.method === "POST" && url.pathname === "/v1/web/migration/commit") {
         const body = await readJson(request, config.maxBodyBytes);
         if (body.apiHub === undefined && body.agentHub === undefined && body.buddyHub === undefined) throw new Error("missing_required_fields");
         safeImportedData(body);
-        const preview = previewLegacyMigration(body);
-        if (!preview.canCommit && body.confirmConflicts !== true) throw new Error("migration_conflicts_unresolved");
-        const workspace = db.replaceWorkspace(preview.workspace, {
-          actor: "migration:owner", summary: `Legacy migration: ${preview.stats.catalogItems} items, ${preview.stats.entitlements} entitlements`, expectedRevision: body.expectedRevision,
+        const revision = assertExpectedRevision(body.expectedRevision);
+        const sources = { apiHub: body.apiHub, agentHub: body.agentHub, buddyHub: body.buddyHub };
+        if (body.previewToken !== migrationToken(sources, revision)) throw new Error("migration_preview_mismatch");
+        const preview = migrationPreview(sources);
+        requireConflictResolutions(preview, body.conflictResolutions);
+        const resolvedWorkspace = resolveMigrationConflicts(preview.workspace, preview.conflicts, body.conflictResolutions);
+        assertWorkspaceState(resolvedWorkspace);
+        const workspace = db.replaceWorkspace(resolvedWorkspace, {
+          actor: "migration:owner", summary: `Legacy migration: ${preview.stats.catalogItems} items, ${preview.stats.entitlements} entitlements`, expectedRevision: revision,
         });
         return sendJson(response, 200, { workspace, revision: db.getRevision(), stats: preview.stats, warnings: preview.warnings, conflicts: preview.conflicts, requestId });
       }
@@ -150,7 +263,7 @@ export function createGateway(config = loadConfig(), database, { fetchExchangeRa
       if (request.method === "PATCH" && statusMatch) {
         const body = await readJson(request, config.maxBodyBytes);
         if (!adoptionStatuses.has(body.adoptionStatus)) throw new Error("missing_required_fields");
-        const item = db.updateAdoptionStatus(decodeURIComponent(statusMatch[1]), body.adoptionStatus);
+        const item = db.updateAdoptionStatus(decodeURIComponent(statusMatch[1]), body.adoptionStatus, assertExpectedRevision(body.expectedRevision));
         return sendJson(response, 200, { item, revision: db.getRevision(), requestId });
       }
 
@@ -158,22 +271,30 @@ export function createGateway(config = loadConfig(), database, { fetchExchangeRa
         const body = await readJson(request, config.maxBodyBytes);
         requireFields(body, ["entitlementId", "observedAt", "sourceLabel"]);
         safeImportedData(body);
-        return sendJson(response, 201, { snapshot: db.addSnapshot(body), revision: db.getRevision(), requestId });
+        const { expectedRevision, ...snapshot } = body;
+        const candidate = db.getWorkspace(); candidate.snapshots.push(snapshot);
+        assertWorkspaceState(candidate);
+        return sendJson(response, 201, { snapshot: db.addSnapshot(snapshot, assertExpectedRevision(expectedRevision)), revision: db.getRevision(), requestId });
       }
 
       if (request.method === "POST" && url.pathname === "/v1/web/evaluations") {
         const body = await readJson(request, config.maxBodyBytes);
         requireFields(body, ["itemId", "evaluatedAt", "utilization", "outputValue", "quotaPressure", "trend", "recommendation", "confidence"]);
         safeImportedData(body);
-        return sendJson(response, 201, { evaluation: db.addEvaluation(body), revision: db.getRevision(), requestId });
+        const { expectedRevision, ...evaluation } = body;
+        const candidate = db.getWorkspace(); candidate.evaluations.push({ evidenceCount: 0, observationDays: 0, ...evaluation });
+        assertWorkspaceState(candidate);
+        return sendJson(response, 201, { evaluation: db.addEvaluation(evaluation, assertExpectedRevision(expectedRevision)), revision: db.getRevision(), requestId });
       }
 
       return sendJson(response, 404, { error: "not_found", requestId });
     } catch (error) {
       const status = statusForError(error);
+      errorCode = status === 500 ? "internal_error" : error.message;
       return sendJson(response, status, {
-        error: status === 500 ? "internal_error" : error.message,
-        ...(Array.isArray(error.paths) ? { paths: error.paths } : {}), requestId,
+        error: errorCode,
+        ...(Array.isArray(error.paths) ? { paths: error.paths } : {}),
+        ...(Array.isArray(error.details) ? { details: error.details } : {}), requestId,
       });
     }
   });
@@ -196,10 +317,6 @@ export function createGateway(config = loadConfig(), database, { fetchExchangeRa
   };
 }
 
-function textSummary(value, fallback) {
-  return typeof value === "string" && value.trim() ? value.trim().slice(0, 300) : fallback;
-}
-
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const config = loadConfig();
   const missing = validateRuntimeConfig(config);
@@ -209,5 +326,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   } else {
     const gateway = createGateway(config);
     gateway.listen().then(() => console.log(`subHUB Gateway listening on http://${config.host}:${config.port}`));
+    let closing = false;
+    const shutdown = async (signal) => {
+      if (closing) return;
+      closing = true;
+      console.log(JSON.stringify({ timestamp: new Date().toISOString(), service: "subhub-gateway", event: "shutdown", signal }));
+      const force = setTimeout(() => process.exit(1), 10_000).unref();
+      try { await gateway.close(); clearTimeout(force); process.exit(0); }
+      catch (error) { console.error(error); process.exit(1); }
+    };
+    process.once("SIGTERM", () => void shutdown("SIGTERM"));
+    process.once("SIGINT", () => void shutdown("SIGINT"));
   }
 }

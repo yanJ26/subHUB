@@ -26,7 +26,7 @@ export type Confidence = "low" | "medium" | "high";
 export type Recommendation = "continue" | "observe" | "upgrade" | "downgrade" | "pause" | "stop";
 export type AssetKind = "domain" | "device" | "server" | "account" | "repository" | "website" | "workflow" | "other";
 export type AssetStatus = "active" | "attention" | "offline" | "expired" | "retired" | "unknown";
-export type DeploymentStatus = "online" | "degraded" | "offline" | "unknown";
+export type DeploymentStatus = "online" | "degraded" | "offline" | "unknown" | "retired";
 export type EntitlementStatus = "active" | "trial" | "paused" | "expired" | "cancelled";
 export type InvoiceStatus = "issued" | "pending" | "none" | "paid" | "reimbursed";
 
@@ -227,7 +227,17 @@ export type WorkspaceState = {
   snapshots: UsageSnapshot[];
   evaluations: Evaluation[];
   workRecords: WorkRecord[];
-  legacyRefs?: LegacyRef[];
+  legacyRefs: LegacyRef[];
+};
+
+export type ExchangeRateSnapshot = {
+  rates: Partial<Record<Currency, number>> & { CNY: number };
+  rateDate: string;
+  source: string;
+  lastAttemptDate?: string | null;
+  lastAttemptAt?: string | null;
+  lastError?: string | null;
+  updatedAt?: string;
 };
 
 export const adoptionLabels: Record<AdoptionStatus, string> = {

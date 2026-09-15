@@ -12,7 +12,7 @@ export function containsLikelySecret(value) {
   return typeof value === "string" && secretPatterns.some((pattern) => pattern.test(value));
 }
 
-const sensitiveKey = /^(?:api[_-]?key|access[_-]?token|secret|secret[_-]?key|password|authorization)$/i;
+const sensitiveKey = /^(?:api[_-]?key|access[_-]?token|token|secret|secret[_-]?key|private[_-]?key|password|authorization|cookie|credential)$/i;
 
 export function findLikelySecretPaths(value, path = "$", found = []) {
   if (found.length >= 20) return found;

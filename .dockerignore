@@ -10,3 +10,13 @@ dev-server.*.log
 *.local
 data
 gateway/data
+backups
+exports
+outputs
+secrets
+**/*.sqlite
+**/*.sqlite-*
+**/*.db
+**/*.db-*
+*.pem
+*.key

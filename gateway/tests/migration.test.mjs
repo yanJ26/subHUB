@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { SubHubDatabase } from "../src/database.mjs";
-import { previewLegacyMigration } from "../src/migration.mjs";
+import { mergeMigrationWorkspace, previewLegacyMigration, resolveMigrationConflicts } from "../src/migration.mjs";
 
 const apiHub = { subscriptions: [{
   id: "sub_codex", name: "Codex", provider: "OpenAI", plan: "ChatGPT Plus", price: 20,
@@ -22,14 +22,15 @@ test("migration merges roles but blocks ambiguous duplicate entitlements", () =>
   const result = previewLegacyMigration({ apiHub, agentHub });
   assert.equal(result.workspace.catalog.length, 1);
   assert.deepEqual([...result.workspace.catalog[0].roles].sort(), ["agent", "api", "app", "model", "platform"]);
-  assert.equal(result.workspace.entitlements.length, 1);
+  assert.equal(result.workspace.entitlements.length, 2);
   assert.equal(result.workspace.entitlements[0].reminderDays, 14);
   assert.deepEqual(result.workspace.entitlements[0].tags, ["Agent"]);
   assert.equal(result.workspace.invoices[0].number, "INV-001");
   assert.equal(result.workspace.accessSurfaces.length, 3);
   assert.equal(result.workspace.assets.length, 2);
   assert.equal(result.workspace.deployments[0].assetId.startsWith("asset_"), true);
-  assert.equal(result.workspace.snapshots.length, 1);
+  assert.equal(result.workspace.snapshots.length, 0);
+  assert.equal(result.workspace.workRecords.length, 1);
   assert.equal(result.workspace.legacyRefs.length > 0, true);
   assert.equal(result.conflicts.some((item) => item.code === "duplicate_entitlement"), true);
   assert.equal(result.canCommit, false);
@@ -71,11 +72,12 @@ test("buddyHUB relationships are remapped to canonical subHUB ids and remain com
     workRecords: [{ id: "bw1", itemId: "bi1", title: "交付功能", occurredAt: "2026-09-01" }],
   } };
   const result = previewLegacyMigration({ apiHub, buddyHub });
-  const entitlement = result.workspace.entitlements[0];
+  const buddyRef = result.workspace.legacyRefs.find((entry) => entry.sourceSystem === "buddyHUB" && entry.entityType === "entitlement" && entry.sourceId === "be1");
+  const entitlement = result.workspace.entitlements.find((entry) => entry.id === buddyRef.targetId);
   const snapshot = result.workspace.snapshots.find((entry) => entry.sourceLabel === "buddyHUB 快照");
   const quota = result.workspace.quotaPolicies[0];
   const link = result.workspace.usageLinks.find((entry) => entry.label === "备用开发");
-  assert.equal(result.workspace.entitlements.length, 1);
+  assert.equal(result.workspace.entitlements.length, 2);
   assert.equal(snapshot.entitlementId, entitlement.id);
   assert.equal(snapshot.quotaPolicyId, quota.id);
   assert.equal(quota.entitlementId, entitlement.id);
@@ -85,9 +87,50 @@ test("buddyHUB relationships are remapped to canonical subHUB ids and remain com
 
   const db = new SubHubDatabase(":memory:");
   try {
-    const stored = db.replaceWorkspace(result.workspace);
-    assert.equal(stored.snapshots[0].entitlementId, entitlement.id);
+    const stored = db.replaceWorkspace(result.workspace, { expectedRevision: 0 });
+    assert.equal(stored.snapshots.find((entry) => entry.sourceLabel === "buddyHUB 快照").entitlementId, entitlement.id);
     assert.equal(stored.deployments[0].assetId, result.workspace.assets.find((entry) => entry.name === "备用电脑").id);
     assert.equal(stored.legacyRefs.length, result.workspace.legacyRefs.length);
   } finally { db.close(); }
+});
+
+test("each entitlement conflict supports an explicit resolution", () => {
+  const preview = previewLegacyMigration({ apiHub, agentHub });
+  const conflict = preview.conflicts.find((entry) => entry.code === "duplicate_entitlement");
+  const both = resolveMigrationConflicts(preview.workspace, preview.conflicts, { [conflict.id]: "keep_both" });
+  const existing = resolveMigrationConflicts(preview.workspace, preview.conflicts, { [conflict.id]: "keep_existing" });
+  const incoming = resolveMigrationConflicts(preview.workspace, preview.conflicts, { [conflict.id]: "use_incoming" });
+  assert.equal(both.entitlements.length, 2);
+  assert.equal(existing.entitlements.length, 1);
+  assert.equal(existing.entitlements[0].id, conflict.existingEntitlementId);
+  assert.equal(incoming.entitlements.length, 1);
+  assert.equal(incoming.entitlements[0].id, conflict.incomingEntitlementId);
+  assert.throws(() => resolveMigrationConflicts(preview.workspace, preview.conflicts, {}), /migration_conflicts_unresolved/);
+});
+
+test("same-label entitlements with different commercial terms remain separate and block commit", () => {
+  const buddyHub = { workspace: {
+    providers: [{ id: "bp1", name: "OpenAI" }],
+    catalog: [{ id: "bi1", providerId: "bp1", name: "Codex", description: "", roles: ["agent"], models: [], adoptionStatus: "active" }],
+    entitlements: [{ id: "be1", itemId: "bi1", label: "ChatGPT Plus", billingMode: "subscription", amount: 25, currency: "USD", billingCycle: "monthly", autoRenew: true }],
+  } };
+  const result = previewLegacyMigration({ apiHub, buddyHub });
+  assert.equal(result.workspace.entitlements.length, 2);
+  assert.equal(result.conflicts.some((entry) => entry.code === "different_entitlement_terms"), true);
+  assert.equal(result.canCommit, false);
+});
+
+test("migration merge preserves current records and is idempotent", () => {
+  const current = {
+    providers: [{ id: "manual-provider", name: "Manual" }],
+    catalog: [{ id: "manual-item", providerId: "manual-provider", name: "Current record", description: "", roles: ["other"], models: [], adoptionStatus: "active" }],
+    entitlements: [], invoices: [], tagDefinitions: [], assets: [], deployments: [], accessSurfaces: [], usageLinks: [], quotaPolicies: [], snapshots: [], evaluations: [], workRecords: [], legacyRefs: [],
+  };
+  const incoming = previewLegacyMigration({ apiHub }).workspace;
+  const once = mergeMigrationWorkspace(current, incoming).workspace;
+  const twice = mergeMigrationWorkspace(once, incoming).workspace;
+  assert.equal(once.catalog.some((entry) => entry.id === "manual-item"), true);
+  assert.equal(once.catalog.length, twice.catalog.length);
+  assert.equal(once.entitlements.length, twice.entitlements.length);
+  assert.equal(once.legacyRefs.length, twice.legacyRefs.length);
 });

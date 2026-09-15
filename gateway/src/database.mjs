@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_EXCHANGE_RATES } from "./exchange-rates.mjs";
 import { sha256 } from "./security.mjs";
+import { assertExpectedRevision, assertWorkspaceState } from "./validation.mjs";
 
 const migrations = [{
   version: 1,
@@ -136,6 +137,17 @@ const migrations = [{
     CREATE INDEX IF NOT EXISTS idx_evaluations_item_time ON evaluations(item_id, evaluated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_invoices_entitlement_status ON invoices(entitlement_id, status);
   `,
+}, {
+  version: 2,
+  sql: `
+    CREATE TABLE IF NOT EXISTS login_attempts (
+      client_key TEXT PRIMARY KEY,
+      attempt_count INTEGER NOT NULL,
+      reset_at INTEGER NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_login_attempts_reset ON login_attempts(reset_at);
+  `,
 }];
 
 const tableDeleteOrder = [
@@ -143,11 +155,6 @@ const tableDeleteOrder = [
   "access_surfaces", "deployments", "assets", "invoices", "entitlement_tags",
   "tag_definitions", "entitlements", "catalog_item_models", "models",
   "catalog_item_roles", "catalog_items", "providers",
-];
-
-const workspaceArrays = [
-  "providers", "catalog", "entitlements", "invoices", "tagDefinitions", "assets",
-  "deployments", "accessSurfaces", "usageLinks", "quotaPolicies", "snapshots", "evaluations", "workRecords",
 ];
 
 function optional(value) {
@@ -161,14 +168,6 @@ function parseJson(value, fallback = []) {
   } catch {
     return fallback;
   }
-}
-
-function normalizedWorkspace(state) {
-  if (!state || typeof state !== "object") throw new Error("invalid_workspace_state");
-  const result = {};
-  for (const key of workspaceArrays) result[key] = Array.isArray(state[key]) ? state[key] : [];
-  result.legacyRefs = Array.isArray(state.legacyRefs) ? state.legacyRefs : [];
-  return result;
 }
 
 export class SubHubDatabase {
@@ -218,7 +217,8 @@ export class SubHubDatabase {
   }
 
   assertRevision(expectedRevision) {
-    if (expectedRevision !== undefined && expectedRevision !== null && Number(expectedRevision) !== this.getRevision()) {
+    assertExpectedRevision(expectedRevision);
+    if (expectedRevision !== this.getRevision()) {
       throw new Error("revision_conflict");
     }
   }
@@ -228,9 +228,23 @@ export class SubHubDatabase {
       .run(randomUUID(), new Date().toISOString(), actor, action, String(summary).slice(0, 1000));
   }
 
+  runMutation({ expectedRevision, actor = "owner", action, summary }, change) {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.assertRevision(expectedRevision);
+      const result = change();
+      this.incrementRevision();
+      this.audit(actor, action, summary);
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   replaceWorkspace(input, { actor = "owner", summary = "Replaced workspace", expectedRevision } = {}) {
-    const state = normalizedWorkspace(input);
-    this.assertRevision(expectedRevision);
+    const state = assertWorkspaceState(input);
     const insertProvider = this.db.prepare("INSERT INTO providers (id, name, website, notes) VALUES (?, ?, ?, ?)");
     const insertItem = this.db.prepare("INSERT INTO catalog_items (id, provider_id, name, description, adoption_status, website, last_reviewed_at, use_cases_json, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     const insertRole = this.db.prepare("INSERT INTO catalog_item_roles (item_id, role) VALUES (?, ?)");
@@ -250,8 +264,7 @@ export class SubHubDatabase {
     const insertWorkRecord = this.db.prepare("INSERT INTO work_records (id, item_id, title, occurred_at, note, source_label) VALUES (?, ?, ?, ?, ?, ?)");
     const insertLegacyRef = this.db.prepare("INSERT INTO legacy_refs (source_system, entity_type, source_id, target_type, target_id, source_hash, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
 
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
+    this.runMutation({ expectedRevision, actor, action: "workspace.replace", summary }, () => {
       for (const table of tableDeleteOrder) this.db.exec(`DELETE FROM ${table}`);
       for (const provider of state.providers) insertProvider.run(provider.id, provider.name, optional(provider.website), optional(provider.notes));
       for (const item of state.catalog) {
@@ -282,13 +295,7 @@ export class SubHubDatabase {
       for (const row of state.evaluations) insertEvaluation.run(row.id, row.itemId, row.evaluatedAt, row.utilization, row.outputValue, row.quotaPressure, row.trend, row.recommendation, row.confidence, row.evidenceCount ?? 0, row.observationDays ?? 0, optional(row.note));
       for (const row of state.workRecords) insertWorkRecord.run(row.id, row.itemId, row.title, row.occurredAt, optional(row.note), optional(row.sourceLabel));
       for (const row of state.legacyRefs) insertLegacyRef.run(row.sourceSystem, row.entityType, row.sourceId, row.targetType, row.targetId, optional(row.sourceHash), row.importedAt || new Date().toISOString());
-      this.incrementRevision();
-      this.audit(actor, "workspace.replace", summary);
-      this.db.exec("COMMIT");
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
+    });
     return this.getWorkspace();
   }
 
@@ -386,31 +393,65 @@ export class SubHubDatabase {
 
   getState() { return { workspace: this.getWorkspace(), revision: this.getRevision(), exchangeRates: this.getExchangeRates() }; }
 
-  updateAdoptionStatus(itemId, adoptionStatus) {
-    const result = this.db.prepare("UPDATE catalog_items SET adoption_status = ?, last_reviewed_at = ? WHERE id = ?")
-      .run(adoptionStatus, new Date().toISOString().slice(0, 10), itemId);
-    if (!result.changes) throw new Error("catalog_item_not_found");
-    this.incrementRevision();
-    this.audit("owner", "catalog.status", `${itemId} -> ${adoptionStatus}`);
+  updateAdoptionStatus(itemId, adoptionStatus, expectedRevision) {
+    this.runMutation({ expectedRevision, action: "catalog.status", summary: `${itemId} -> ${adoptionStatus}` }, () => {
+      const result = this.db.prepare("UPDATE catalog_items SET adoption_status = ?, last_reviewed_at = ? WHERE id = ?")
+        .run(adoptionStatus, new Date().toISOString().slice(0, 10), itemId);
+      if (!result.changes) throw new Error("catalog_item_not_found");
+    });
     return this.db.prepare("SELECT id, adoption_status, last_reviewed_at FROM catalog_items WHERE id = ?").get(itemId);
   }
 
-  addSnapshot(snapshot) {
+  addSnapshot(snapshot, expectedRevision) {
     const row = { id: snapshot.id || randomUUID(), ...snapshot };
-    this.db.prepare("INSERT INTO usage_snapshots (id, entitlement_id, quota_policy_id, observed_at, period_start, period_end, used_value, remaining_value, utilization_percent, source_label, evidence_name, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(row.id, row.entitlementId, optional(row.quotaPolicyId), row.observedAt, optional(row.periodStart), optional(row.periodEnd), row.usedValue ?? null, row.remainingValue ?? null, row.utilizationPercent ?? null, row.sourceLabel, optional(row.evidenceName), optional(row.notes));
-    this.incrementRevision();
-    this.audit("owner", "snapshot.create", `${row.entitlementId} @ ${row.observedAt}`);
+    this.runMutation({ expectedRevision, action: "snapshot.create", summary: `${row.entitlementId} @ ${row.observedAt}` }, () => {
+      this.db.prepare("INSERT INTO usage_snapshots (id, entitlement_id, quota_policy_id, observed_at, period_start, period_end, used_value, remaining_value, utilization_percent, source_label, evidence_name, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(row.id, row.entitlementId, optional(row.quotaPolicyId), row.observedAt, optional(row.periodStart), optional(row.periodEnd), row.usedValue ?? null, row.remainingValue ?? null, row.utilizationPercent ?? null, row.sourceLabel, optional(row.evidenceName), optional(row.notes));
+    });
     return row;
   }
 
-  addEvaluation(evaluation) {
+  addEvaluation(evaluation, expectedRevision) {
     const row = { id: evaluation.id || randomUUID(), evidenceCount: 0, observationDays: 0, ...evaluation };
-    this.db.prepare("INSERT INTO evaluations (id, item_id, evaluated_at, utilization, output_value, quota_pressure, trend, recommendation, confidence, evidence_count, observation_days, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(row.id, row.itemId, row.evaluatedAt, row.utilization, row.outputValue, row.quotaPressure, row.trend, row.recommendation, row.confidence, row.evidenceCount, row.observationDays, optional(row.note));
-    this.incrementRevision();
-    this.audit("owner", "evaluation.create", `${row.itemId} -> ${row.recommendation}`);
+    this.runMutation({ expectedRevision, action: "evaluation.create", summary: `${row.itemId} -> ${row.recommendation}` }, () => {
+      this.db.prepare("INSERT INTO evaluations (id, item_id, evaluated_at, utilization, output_value, quota_pressure, trend, recommendation, confidence, evidence_count, observation_days, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(row.id, row.itemId, row.evaluatedAt, row.utilization, row.outputValue, row.quotaPressure, row.trend, row.recommendation, row.confidence, row.evidenceCount, row.observationDays, optional(row.note));
+    });
     return row;
+  }
+
+  reserveLoginAttempt(clientKey, { now = Date.now(), windowMs = 15 * 60_000, maxAttempts = 10 } = {}) {
+    const key = sha256(String(clientKey)).slice(0, 40);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare("DELETE FROM login_attempts WHERE reset_at <= ?").run(now);
+      const current = this.db.prepare("SELECT attempt_count, reset_at FROM login_attempts WHERE client_key = ?").get(key);
+      if (current && current.attempt_count >= maxAttempts) {
+        this.db.exec("COMMIT");
+        return { allowed: false, retryAfter: Math.max(1, Math.ceil((current.reset_at - now) / 1000)) };
+      }
+      const count = Number(current?.attempt_count || 0) + 1;
+      const resetAt = Number(current?.reset_at || now + windowMs);
+      this.db.prepare(`INSERT INTO login_attempts (client_key, attempt_count, reset_at, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(client_key) DO UPDATE SET attempt_count = excluded.attempt_count, reset_at = excluded.reset_at, updated_at = excluded.updated_at`)
+        .run(key, count, resetAt, new Date(now).toISOString());
+      this.db.exec("COMMIT");
+      return { allowed: true, retryAfter: Math.max(1, Math.ceil((resetAt - now) / 1000)) };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  clearLoginAttempts(clientKey) {
+    const key = sha256(String(clientKey)).slice(0, 40);
+    this.db.prepare("DELETE FROM login_attempts WHERE client_key = ?").run(key);
+  }
+
+  getAuditLogs(limit = 100) {
+    return this.db.prepare("SELECT id, occurred_at, actor, action, summary FROM audit_logs ORDER BY occurred_at DESC LIMIT ?")
+      .all(Math.min(500, Math.max(1, Number(limit) || 100)))
+      .map((row) => ({ id: row.id, occurredAt: row.occurred_at, actor: row.actor, action: row.action, summary: row.summary }));
   }
 
   getExchangeRates() {

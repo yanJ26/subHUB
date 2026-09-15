@@ -69,10 +69,14 @@ export function previewLegacyMigration({ apiHub, agentHub, buddyHub } = {}) {
 
   function addRef(sourceSystem, entityType, sourceId, targetType, targetId, value) {
     if (!sourceId) return;
-    workspace.legacyRefs.push({
+    const key = `${sourceSystem}\u0000${entityType}\u0000${String(sourceId)}`;
+    const row = {
       sourceSystem, entityType, sourceId: String(sourceId), targetType, targetId,
       sourceHash: sha256(JSON.stringify(value ?? null)), importedAt,
-    });
+    };
+    const existingIndex = workspace.legacyRefs.findIndex((entry) => `${entry.sourceSystem}\u0000${entry.entityType}\u0000${entry.sourceId}` === key);
+    if (existingIndex >= 0) workspace.legacyRefs[existingIndex] = row;
+    else workspace.legacyRefs.push(row);
   }
 
   function ensureProvider(name, sourceSystem, sourceId, raw) {
@@ -118,17 +122,28 @@ export function previewLegacyMigration({ apiHub, agentHub, buddyHub } = {}) {
 
   function addEntitlement(item, entitlement, sourceSystem, sourceId, raw, { preferExisting = false } = {}) {
     const existing = entitlementByItem.get(item.id);
-    if (existing && preferExisting) {
-      const hasCommercialDetails = entitlement.billingMode !== "free" || entitlement.amount !== null || entitlement.label;
-      if (hasCommercialDetails) conflicts.push({
-        code: "duplicate_entitlement", severity: "blocking", itemId: item.id,
-        message: `${item.name} 在多个旧项目中都有费用信息；已暂时保留 apiHUB 权益，提交前需人工选择。`,
-        sources: [existing._source || "unknown", sourceSystem],
-      });
-      addRef(sourceSystem, "entitlement", sourceId, "entitlement", existing.id, raw);
-      return existing;
-    }
     const row = { ...entitlement, _source: sourceSystem };
+    if (existing && preferExisting) {
+      const exact = text(existing.label).toLocaleLowerCase() === text(row.label).toLocaleLowerCase()
+        && existing.billingMode === row.billingMode && existing.amount === row.amount
+        && existing.currency === row.currency && existing.billingCycle === row.billingCycle;
+      if (exact) {
+        warnings.push({ code: "duplicate_entitlement_skipped", message: `${item.name} 的相同权益已存在，已合并来源映射。`, itemId: item.id });
+        addRef(sourceSystem, "entitlement", sourceId, "entitlement", existing.id, raw);
+        return existing;
+      }
+      workspace.entitlements.push(row);
+      entitlementByItem.set(item.id, row);
+      conflicts.push({
+        id: identifier("conflict", "duplicate_entitlement", item.id, sourceSystem),
+        code: "duplicate_entitlement", severity: "blocking", itemId: item.id,
+        message: `${item.name} 在多个旧项目中都有不同费用信息；预览保留两条，提交前请选择处理方式。`,
+        sources: [existing._source || "unknown", sourceSystem],
+        existingEntitlementId: existing.id, incomingEntitlementId: row.id,
+      });
+      addRef(sourceSystem, "entitlement", sourceId, "entitlement", row.id, raw);
+      return row;
+    }
     workspace.entitlements.push(row);
     if (!existing) entitlementByItem.set(item.id, row);
     addRef(sourceSystem, "entitlement", sourceId, "entitlement", row.id, raw);
@@ -214,11 +229,10 @@ export function previewLegacyMigration({ apiHub, agentHub, buddyHub } = {}) {
       const hasExplicitEntitlement = Boolean(subscription && (
         ["subscription", "usage", "self_hosted", "hybrid", "trial"].includes(subscription.mode)
         || text(subscription.plan) || Number.isFinite(subscription.amount) || text(subscription.renewalDate)
-        || Boolean(subscription.autoRenew) || text(subscription.channel) || text(subscription.notes)
+        || Boolean(subscription.autoRenew) || text(subscription.channel)
       ));
-      let entitlement = entitlementByItem.get(item.id);
       if (hasExplicitEntitlement) {
-        entitlement = addEntitlement(item, {
+        addEntitlement(item, {
           id: identifier("ent", "agenthub", agent.id || name), itemId: item.id,
           label: text(subscription.plan, subscription.mode === "self_hosted" ? "自托管成本" : `${name} 使用权`),
           billingMode: billingMode(subscription.mode), amount: Number.isFinite(subscription.amount) ? subscription.amount : null,
@@ -239,23 +253,13 @@ export function previewLegacyMigration({ apiHub, agentHub, buddyHub } = {}) {
       for (const activity of Array.isArray(agent.activity) ? agent.activity : []) {
         const level = Number(activity.level);
         if (!Number.isInteger(level) || level < 0 || level > 3 || !/^\d{4}-\d{2}$/.test(text(activity.period))) continue;
-        if (entitlement) {
-          const row = {
-            id: identifier("snapshot", "agenthub", agent.id || name, activity.period), entitlementId: entitlement.id,
-            observedAt: `${activity.period}-28T12:00:00.000Z`, utilizationPercent: [0, 25, 60, 90][level],
-            sourceLabel: "agentHUB 月度活跃档位", ...(text(activity.note) ? { notes: text(activity.note) } : {}),
-          };
-          workspace.snapshots.push(row);
-          addRef("agentHUB", "activity", `${agent.id}:${activity.period}`, "usage_snapshot", row.id, activity);
-        } else {
-          const row = {
-            id: identifier("work", "agenthub-activity", agent.id || name, activity.period), itemId: item.id,
-            title: `${activity.period} 月度活跃度 ${level}/3`, occurredAt: `${activity.period}-28`,
-            ...(text(activity.note) ? { note: text(activity.note) } : {}), sourceLabel: "agentHUB",
-          };
-          workspace.workRecords.push(row);
-          addRef("agentHUB", "activity", `${agent.id}:${activity.period}`, "work_record", row.id, activity);
-        }
+        const row = {
+          id: identifier("work", "agenthub-activity", agent.id || name, activity.period), itemId: item.id,
+          title: `${activity.period} 月度活跃度 ${level}/3`, occurredAt: `${activity.period}-28`,
+          ...(text(activity.note) ? { note: text(activity.note) } : {}), sourceLabel: "agentHUB",
+        };
+        workspace.workRecords.push(row);
+        addRef("agentHUB", "activity", `${agent.id}:${activity.period}`, "work_record", row.id, activity);
       }
     }
     for (const deployment of agentHub.deployments) {
@@ -366,8 +370,10 @@ export function previewLegacyMigration({ apiHub, agentHub, buddyHub } = {}) {
         ...(text(oldEntitlement.notes) ? { notes: text(oldEntitlement.notes) } : {}),
       };
       const candidates = workspace.entitlements.filter((entry) => entry.itemId === item.id);
-      const duplicate = candidates.find((entry) => text(entry.label).toLocaleLowerCase() === normalized.label.toLocaleLowerCase())
-        || candidates.find((entry) => entry.amount === normalized.amount && entry.currency === normalized.currency && entry.billingCycle === normalized.billingCycle && (entry.amount !== null || normalized.amount !== null));
+      const duplicate = candidates.find((entry) => text(entry.label).toLocaleLowerCase() === normalized.label.toLocaleLowerCase()
+        && entry.amount === normalized.amount && entry.currency === normalized.currency && entry.billingCycle === normalized.billingCycle
+        && entry.billingMode === normalized.billingMode);
+      const sameLabelConflict = !duplicate && candidates.find((entry) => text(entry.label).toLocaleLowerCase() === normalized.label.toLocaleLowerCase());
       let target;
       if (duplicate) {
         warnings.push({ code: "buddy_entitlement_skipped", message: `${item.name} / ${oldEntitlement.label} 已由旧源迁入，跳过 buddyHUB 重复权益。`, itemId: item.id });
@@ -375,6 +381,13 @@ export function previewLegacyMigration({ apiHub, agentHub, buddyHub } = {}) {
         target = duplicate;
       } else {
         target = addEntitlement(item, normalized, "buddyHUB", oldEntitlement.id, oldEntitlement);
+        if (sameLabelConflict) conflicts.push({
+          id: identifier("conflict", "different_entitlement_terms", item.id, oldEntitlement.id || normalized.id),
+          code: "different_entitlement_terms", severity: "blocking", itemId: item.id,
+          message: `${item.name} 有同名但金额或计费条件不同的权益；两条记录均已保留，请确认它们确实独立。`,
+          sources: [sameLabelConflict._source || "existing", "buddyHUB"],
+          existingEntitlementId: sameLabelConflict.id, incomingEntitlementId: target.id,
+        });
       }
       if (oldEntitlement.id) buddyEntitlementMap.set(oldEntitlement.id, target);
     }
@@ -567,4 +580,169 @@ export function previewLegacyMigration({ apiHub, agentHub, buddyHub } = {}) {
     },
     canCommit: blockingConflicts.length === 0,
   };
+}
+
+function copyWorkspace(state) {
+  return JSON.parse(JSON.stringify(state));
+}
+
+function sameText(left, right) {
+  return text(left).toLocaleLowerCase() === text(right).toLocaleLowerCase();
+}
+
+export function mergeMigrationWorkspace(currentWorkspace, incomingWorkspace) {
+  const result = copyWorkspace(currentWorkspace);
+  result.legacyRefs ||= [];
+  const incoming = copyWorkspace(incomingWorkspace);
+  const warnings = [];
+  const conflicts = [];
+  const providerMap = new Map();
+  const itemMap = new Map();
+  const entitlementMap = new Map();
+  const assetMap = new Map();
+  const deploymentMap = new Map();
+  const surfaceMap = new Map();
+  const quotaMap = new Map();
+
+  for (const row of incoming.providers) {
+    let target = result.providers.find((entry) => entry.id === row.id)
+      || result.providers.find((entry) => sameText(entry.name, row.name));
+    if (!target) { target = row; result.providers.push(target); }
+    providerMap.set(row.id, target.id);
+  }
+
+  for (const row of incoming.catalog) {
+    const mapped = { ...row, providerId: providerMap.get(row.providerId) || row.providerId };
+    let target = result.catalog.find((entry) => entry.id === mapped.id)
+      || result.catalog.find((entry) => entry.providerId === mapped.providerId && sameText(entry.name, mapped.name));
+    if (target) {
+      target.roles = [...new Set([...(target.roles || []), ...(mapped.roles || [])])];
+      target.models = [...new Set([...(target.models || []), ...(mapped.models || [])])];
+      target.useCases = [...new Set([...(target.useCases || []), ...(mapped.useCases || [])])];
+      target.description ||= mapped.description;
+      target.website ||= mapped.website;
+      target.notes ||= mapped.notes;
+      warnings.push({ code: "existing_catalog_item_merged", message: `${mapped.name} 已存在于 subHUB，已保留现有字段并合并角色。`, itemId: target.id });
+    } else {
+      target = mapped;
+      result.catalog.push(target);
+    }
+    itemMap.set(row.id, target.id);
+  }
+
+  for (const row of incoming.entitlements) {
+    const mapped = { ...row, itemId: itemMap.get(row.itemId) || row.itemId };
+    const exact = result.entitlements.find((entry) => entry.itemId === mapped.itemId && sameText(entry.label, mapped.label)
+      && entry.billingMode === mapped.billingMode && entry.amount === mapped.amount
+      && entry.currency === mapped.currency && entry.billingCycle === mapped.billingCycle);
+    const idMatch = result.entitlements.find((entry) => entry.id === mapped.id);
+    const similar = result.entitlements.find((entry) => entry.itemId === mapped.itemId && sameText(entry.label, mapped.label));
+    let target = exact || idMatch;
+    if (target) {
+      if (!exact) conflicts.push({
+        id: identifier("conflict", "changed_existing_entitlement", mapped.id), code: "changed_existing_entitlement", severity: "blocking", itemId: mapped.itemId,
+        message: `${mapped.label} 与 subHUB 中相同 ID 的费用条件不同；预览已将旧来源保存为独立候选。`, sources: ["subHUB", "legacy"],
+        existingEntitlementId: target.id,
+        incomingEntitlementId: identifier("ent", "migration-collision", mapped.id, mapped.label, mapped.amount, mapped.currency, mapped.billingCycle),
+      });
+      if (!exact) {
+        const incomingId = conflicts.at(-1).incomingEntitlementId;
+        target = { ...mapped, id: incomingId };
+        result.entitlements.push(target);
+      }
+      entitlementMap.set(row.id, target.id);
+    } else {
+      result.entitlements.push(mapped);
+      entitlementMap.set(row.id, mapped.id);
+      if (similar) conflicts.push({
+        id: identifier("conflict", "similar_existing_entitlement", similar.id, mapped.id), code: "similar_existing_entitlement", severity: "blocking", itemId: mapped.itemId,
+        message: `${mapped.label} 与现有权益同名但费用条件不同；两条记录均保留，请确认它们属于不同账户或方案。`, sources: ["subHUB", "legacy"],
+        existingEntitlementId: similar.id, incomingEntitlementId: mapped.id,
+      });
+    }
+  }
+
+  const appendById = (collection, row) => {
+    const existing = result[collection].find((entry) => entry.id === row.id);
+    if (!existing) result[collection].push(row);
+    return existing || row;
+  };
+
+  for (const row of incoming.tagDefinitions) {
+    const existing = result.tagDefinitions.find((entry) => sameText(entry.name, row.name));
+    if (!existing) result.tagDefinitions.push(row);
+  }
+  for (const row of incoming.invoices) appendById("invoices", { ...row, entitlementId: entitlementMap.get(row.entitlementId) || row.entitlementId });
+  for (const row of incoming.assets) {
+    const mapped = { ...row,
+      ...(row.providerId ? { providerId: providerMap.get(row.providerId) || row.providerId } : {}),
+      ...(row.itemId ? { itemId: itemMap.get(row.itemId) || row.itemId } : {}),
+    };
+    const existing = result.assets.find((entry) => entry.id === mapped.id)
+      || result.assets.find((entry) => entry.kind === mapped.kind && sameText(entry.name, mapped.name));
+    const target = existing || appendById("assets", mapped);
+    assetMap.set(row.id, target.id);
+  }
+  for (const row of incoming.deployments) {
+    const mapped = { ...row, itemId: itemMap.get(row.itemId) || row.itemId, assetId: assetMap.get(row.assetId) || row.assetId };
+    const target = appendById("deployments", mapped);
+    deploymentMap.set(row.id, target.id);
+  }
+  for (const row of incoming.accessSurfaces) {
+    const mapped = { ...row, itemId: itemMap.get(row.itemId) || row.itemId,
+      ...(row.assetId ? { assetId: assetMap.get(row.assetId) || row.assetId } : {}),
+      ...(row.deploymentId ? { deploymentId: deploymentMap.get(row.deploymentId) || row.deploymentId } : {}),
+    };
+    const target = appendById("accessSurfaces", mapped);
+    surfaceMap.set(row.id, target.id);
+  }
+  for (const row of incoming.usageLinks) appendById("usageLinks", { ...row,
+    entitlementId: entitlementMap.get(row.entitlementId) || row.entitlementId,
+    ...(row.consumerItemId ? { consumerItemId: itemMap.get(row.consumerItemId) || row.consumerItemId } : {}),
+    ...(row.accessSurfaceId ? { accessSurfaceId: surfaceMap.get(row.accessSurfaceId) || row.accessSurfaceId } : {}),
+    ...(row.assetId ? { assetId: assetMap.get(row.assetId) || row.assetId } : {}),
+    ...(row.deploymentId ? { deploymentId: deploymentMap.get(row.deploymentId) || row.deploymentId } : {}),
+  });
+  for (const row of incoming.quotaPolicies) {
+    const mapped = { ...row, entitlementId: entitlementMap.get(row.entitlementId) || row.entitlementId };
+    const target = appendById("quotaPolicies", mapped);
+    quotaMap.set(row.id, target.id);
+  }
+  for (const row of incoming.snapshots) appendById("snapshots", { ...row,
+    entitlementId: entitlementMap.get(row.entitlementId) || row.entitlementId,
+    ...(row.quotaPolicyId ? { quotaPolicyId: quotaMap.get(row.quotaPolicyId) || row.quotaPolicyId } : {}),
+  });
+  for (const row of incoming.evaluations) appendById("evaluations", { ...row, itemId: itemMap.get(row.itemId) || row.itemId });
+  for (const row of incoming.workRecords) appendById("workRecords", { ...row, itemId: itemMap.get(row.itemId) || row.itemId });
+
+  const targetMaps = { provider: providerMap, catalog_item: itemMap, entitlement: entitlementMap, asset: assetMap, deployment: deploymentMap, access_surface: surfaceMap, quota_policy: quotaMap };
+  for (const ref of incoming.legacyRefs || []) {
+    const mapped = { ...ref, targetId: targetMaps[ref.targetType]?.get(ref.targetId) || ref.targetId };
+    const index = result.legacyRefs.findIndex((entry) => entry.sourceSystem === mapped.sourceSystem && entry.entityType === mapped.entityType && entry.sourceId === mapped.sourceId);
+    if (index >= 0) result.legacyRefs[index] = mapped;
+    else result.legacyRefs.push(mapped);
+  }
+  return { workspace: result, warnings, conflicts };
+}
+
+export function resolveMigrationConflicts(workspace, conflicts, resolutions) {
+  const result = copyWorkspace(workspace);
+  const remapEntitlement = (fromId, toId) => {
+    if (!fromId || !toId || fromId === toId) return;
+    for (const collection of ["invoices", "usageLinks", "quotaPolicies", "snapshots"]) {
+      for (const row of result[collection]) if (row.entitlementId === fromId) row.entitlementId = toId;
+    }
+    for (const ref of result.legacyRefs || []) {
+      if (ref.targetType === "entitlement" && ref.targetId === fromId) ref.targetId = toId;
+    }
+    result.entitlements = result.entitlements.filter((entry) => entry.id !== fromId);
+  };
+  for (const conflict of conflicts.filter((entry) => entry.severity === "blocking")) {
+    const resolution = resolutions?.[conflict.id];
+    if (!["keep_both", "keep_existing", "use_incoming"].includes(resolution)) throw new Error("migration_conflicts_unresolved");
+    if (!conflict.existingEntitlementId || !conflict.incomingEntitlementId) throw new Error("migration_conflicts_unresolved");
+    if (resolution === "keep_existing") remapEntitlement(conflict.incomingEntitlementId, conflict.existingEntitlementId);
+    if (resolution === "use_incoming") remapEntitlement(conflict.existingEntitlementId, conflict.incomingEntitlementId);
+  }
+  return result;
 }

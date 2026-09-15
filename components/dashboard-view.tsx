@@ -1,9 +1,10 @@
 import { AdoptionBadge, RecommendationBadge } from "./status-badge";
-import { adoptionLabels, roleLabels, type AdoptionStatus, type WorkspaceState } from "@/lib/domain";
-import { daysUntil, latestEvaluation, nextEntitlementDate, workspaceSummary } from "@/lib/metrics";
+import { adoptionLabels, roleLabels, type AdoptionStatus, type ExchangeRateSnapshot, type WorkspaceState } from "@/lib/domain";
+import { latestEvaluation, lifecycleEvents, workspaceSummary } from "@/lib/metrics";
 
 type Props = {
   state: WorkspaceState;
+  exchangeRates: ExchangeRateSnapshot;
   onOpenItem: (id: string) => void;
   onShowCatalog: () => void;
 };
@@ -19,15 +20,11 @@ function formatCurrency(value: number) {
   return new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(value);
 }
 
-export function DashboardView({ state, onOpenItem, onShowCatalog }: Props) {
-  const summary = workspaceSummary(state);
+export function DashboardView({ state, exchangeRates, onOpenItem, onShowCatalog }: Props) {
+  const summary = workspaceSummary(state, exchangeRates.rates);
   const providerMap = new Map(state.providers.map((provider) => [provider.id, provider]));
   const itemMap = new Map(state.catalog.map((item) => [item.id, item]));
-  const urgent = state.entitlements
-    .map((entitlement) => ({ entitlement, item: itemMap.get(entitlement.itemId), date: nextEntitlementDate(entitlement), days: daysUntil(nextEntitlementDate(entitlement)) }))
-    .filter((entry) => entry.date && entry.days !== null)
-    .sort((left, right) => (left.date || "").localeCompare(right.date || ""))
-    .slice(0, 5);
+  const urgent = lifecycleEvents(state).slice(0, 5).map((event) => ({ ...event, item: event.itemId ? itemMap.get(event.itemId) : undefined }));
   const attention = state.catalog
     .map((item) => ({ item, evaluation: latestEvaluation(item.id, state.evaluations) }))
     .filter(({ evaluation }) => evaluation && ["observe", "downgrade", "pause", "stop", "upgrade"].includes(evaluation.recommendation))
@@ -41,7 +38,7 @@ export function DashboardView({ state, onOpenItem, onShowCatalog }: Props) {
     <div className="view-stack">
       <section className="summary-grid" aria-label="关键指标">
         <article className="metric-card metric-primary"><span>正在使用</span><strong>{summary.active}</strong><small>{state.assets.length} 项数字资产已登记</small></article>
-        <article className="metric-card"><span>月度等价固定成本</span><strong>{formatCurrency(summary.monthlyCost)}</strong><small>仅统计已有明确金额</small></article>
+        <article className="metric-card"><span>月度等价固定成本</span><strong>{formatCurrency(summary.monthlyCost)}</strong><small>{summary.unpricedRecurring ? `${summary.unpricedRecurring} 项周期费用未计价` : `${exchangeRates.rateDate} · ${exchangeRates.source}`}</small></article>
         <article className={`metric-card ${summary.upcoming ? "metric-warning" : ""}`}><span>30 天内续费或到期</span><strong>{summary.upcoming}</strong><small>{summary.trial} 项仍在试用</small></article>
         <article className={`metric-card ${summary.pendingInvoices || summary.attentionAssets ? "metric-warning" : ""}`}><span>待处理事项</span><strong>{summary.pendingInvoices + summary.attentionAssets}</strong><small>{summary.pendingInvoices} 张待开发票 · {summary.attentionAssets} 项资产异常</small></article>
       </section>
@@ -50,10 +47,10 @@ export function DashboardView({ state, onOpenItem, onShowCatalog }: Props) {
         <article className="panel urgency-panel">
           <header className="panel-header"><div><span className="kicker">RENEWAL & EXPIRY</span><h2>近期续费与到期</h2></div><span>{urgent.length} 项有日期</span></header>
           <div className="urgent-list">
-            {urgent.map(({ entitlement, item, date, days }) => (
-              <button key={entitlement.id} onClick={() => item && onOpenItem(item.id)}>
+            {urgent.map(({ id, item, label, date, days, kind }) => (
+              <button key={id} onClick={() => item && onOpenItem(item.id)}>
                 <time><b>{formatDate(date)}</b><small>{days !== null && days < 0 ? `已过期 ${Math.abs(days)} 天` : days === 0 ? "今天" : `${days} 天后`}</small></time>
-                <span className="urgent-main"><strong>{item?.name || entitlement.label}</strong><small>{entitlement.label}</small></span>
+                <span className="urgent-main"><strong>{item?.name || label}</strong><small>{label} · {kind === "renewal" ? "续费" : kind === "asset_expiry" ? "资产到期" : "权益到期"}</small></span>
                 <span className={`urgency-dot ${(days ?? 99) <= 14 ? "hot" : ""}`} />
               </button>
             ))}

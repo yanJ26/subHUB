@@ -93,5 +93,9 @@ export async function hasOwnerSession(request: Request) {
 }
 
 export function isCrossSiteMutation(request: Request) {
-  return !["GET", "HEAD", "OPTIONS"].includes(request.method) && request.headers.get("sec-fetch-site") === "cross-site";
+  if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return false;
+  if (request.headers.get("sec-fetch-site") === "cross-site") return true;
+  const expectedOrigin = process.env.SUBHUB_PUBLIC_ORIGIN?.trim().replace(/\/$/, "");
+  if (!expectedOrigin) return false;
+  return request.headers.get("origin")?.replace(/\/$/, "") !== expectedOrigin;
 }

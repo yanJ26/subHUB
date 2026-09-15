@@ -11,19 +11,24 @@ const trendLabels = { rising: "上升", stable: "稳定", falling: "下降", unk
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
 
-export function EvaluationsView({ state, onOpenItem, serverMode, onWorkspaceChange }: {
+export function EvaluationsView({ state, revision, onOpenItem, serverMode, onWorkspaceChange, onAddEvaluation, onAddWorkRecord }: {
   state: WorkspaceState;
+  revision: number;
   onOpenItem: (id: string) => void;
   serverMode: boolean;
   onWorkspaceChange: (state: WorkspaceState) => void;
+  onAddEvaluation: () => void;
+  onAddWorkRecord: () => void;
 }) {
   const [showSnapshot, setShowSnapshot] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [entitlementId, setEntitlementId] = useState(state.entitlements[0]?.id || "");
+  const [quotaPolicyId, setQuotaPolicyId] = useState(state.quotaPolicies.find((entry) => entry.entitlementId === state.entitlements[0]?.id)?.id || "");
   const [observedAt, setObservedAt] = useState(new Date().toISOString().slice(0, 10));
   const [utilizationPercent, setUtilizationPercent] = useState("");
   const [remainingValue, setRemainingValue] = useState("");
+  const [usedValue, setUsedValue] = useState("");
   const [evidenceName, setEvidenceName] = useState("");
   const [notes, setNotes] = useState("");
   const itemMap = new Map(state.catalog.map((item) => [item.id, item]));
@@ -39,28 +44,30 @@ export function EvaluationsView({ state, onOpenItem, serverMode, onWorkspaceChan
     const snapshot = {
       id: globalThis.crypto?.randomUUID?.() || `snapshot_${Date.now()}`,
       entitlementId, observedAt: `${observedAt}T12:00:00.000Z`, sourceLabel: "网页快照 / 人工观察",
+      ...(quotaPolicyId ? { quotaPolicyId } : {}),
       ...(utilizationPercent ? { utilizationPercent: Number(utilizationPercent) } : {}),
       ...(remainingValue ? { remainingValue: Number(remainingValue) } : {}),
+      ...(usedValue ? { usedValue: Number(usedValue) } : {}),
       ...(evidenceName.trim() ? { evidenceName: evidenceName.trim() } : {}),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
     };
     try {
       if (serverMode) {
-        const response = await fetch(`${BASE_PATH}/api/web/snapshots`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(snapshot) });
+        const response = await fetch(`${BASE_PATH}/api/web/snapshots`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...snapshot, expectedRevision: revision }) });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "保存失败");
         onWorkspaceChange({ ...state, snapshots: [result.snapshot, ...state.snapshots] });
       } else {
         onWorkspaceChange({ ...state, snapshots: [snapshot, ...state.snapshots] });
       }
-      setUtilizationPercent(""); setRemainingValue(""); setEvidenceName(""); setNotes(""); setShowSnapshot(false);
+      setUtilizationPercent(""); setRemainingValue(""); setUsedValue(""); setEvidenceName(""); setNotes(""); setShowSnapshot(false);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "保存失败"); }
     finally { setBusy(false); }
   }
 
   return (
     <div className="view-stack">
-      <section className="section-intro"><div><span className="kicker">APPROXIMATE, NOT PRETEND-PRECISE</span><h2>快照与效率</h2><p>不同平台额度规则分别解释；原始数值只作为证据，最终输出使用程度、产出价值和建议动作。</p></div><button className="primary-button" onClick={() => setShowSnapshot(true)}>＋ 添加快照</button></section>
+      <section className="section-intro"><div><span className="kicker">APPROXIMATE, NOT PRETEND-PRECISE</span><h2>快照与效率</h2><p>不同平台额度规则分别解释；原始数值只作为证据，最终输出使用程度、产出价值和建议动作。</p></div><span className="section-actions-inline"><button className="secondary-button" onClick={onAddWorkRecord}>＋ 工作记录</button><button className="secondary-button" onClick={onAddEvaluation}>＋ 效率评价</button><button className="primary-button" onClick={() => setShowSnapshot(true)}>＋ 添加快照</button></span></section>
       <section className="evaluation-grid">
         {sorted.map((evaluation) => {
           const item = itemMap.get(evaluation.itemId);
@@ -83,7 +90,7 @@ export function EvaluationsView({ state, onOpenItem, serverMode, onWorkspaceChan
           return <div className="snapshot-row" key={snapshot.id}><time>{snapshot.observedAt.slice(0, 10)}</time><span><b>{item?.name}</b><small>{snapshot.sourceLabel}</small></span><span>{snapshot.utilizationPercent !== undefined ? `窗口利用率 ${snapshot.utilizationPercent}%` : snapshot.remainingValue !== undefined ? `剩余额度 ${snapshot.remainingValue}` : "保留原始证据"}</span><span>{snapshot.evidenceName || "未附文件"}</span></div>;
         })}
       </section>
-      {showSnapshot && <><button className="drawer-backdrop" aria-label="关闭快照表单" onClick={() => setShowSnapshot(false)} /><section className="snapshot-modal" role="dialog" aria-modal="true" aria-labelledby="snapshot-title"><header><div><span className="kicker">IRREGULAR EVIDENCE</span><h2 id="snapshot-title">记录一份快照</h2></div><button className="close-button" onClick={() => setShowSnapshot(false)}>×</button></header><p>不要求整月或固定间隔。按快照实际日期保存；有多份证据后再估算趋势。</p><form onSubmit={addSnapshot}><label><span>对应权益</span><select required value={entitlementId} onChange={(event) => setEntitlementId(event.target.value)}>{state.entitlements.map((entitlement) => <option value={entitlement.id} key={entitlement.id}>{itemMap.get(entitlement.itemId)?.name} · {entitlement.label}</option>)}</select></label><label><span>观察日期</span><input required type="date" value={observedAt} onChange={(event) => setObservedAt(event.target.value)} /></label><div className="form-pair"><label><span>窗口利用率 %（可选）</span><input type="number" min="0" max="100" value={utilizationPercent} onChange={(event) => setUtilizationPercent(event.target.value)} /></label><label><span>剩余额度（可选）</span><input type="number" min="0" step="any" value={remainingValue} onChange={(event) => setRemainingValue(event.target.value)} /></label></div><label><span>证据名称（可选）</span><input value={evidenceName} onChange={(event) => setEvidenceName(event.target.value)} placeholder="例如 codex-usage-2026-08-27.png" /></label><label><span>观察备注（可选）</span><textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="例如最近十天主要用于项目开发，产出可直接采用" /></label>{error && <em>{error}</em>}<footer><button type="button" className="secondary-button" onClick={() => setShowSnapshot(false)}>取消</button><button className="primary-button" disabled={busy}>{busy ? "保存中…" : serverMode ? "保存原始证据" : "加入本次预览"}</button></footer></form></section></>}
+      {showSnapshot && <><button className="drawer-backdrop" aria-label="关闭快照表单" onClick={() => setShowSnapshot(false)} /><section className="snapshot-modal" role="dialog" aria-modal="true" aria-labelledby="snapshot-title"><header><div><span className="kicker">IRREGULAR EVIDENCE</span><h2 id="snapshot-title">记录一份快照</h2></div><button className="close-button" onClick={() => setShowSnapshot(false)}>×</button></header><p>不要求整月或固定间隔。按快照实际日期保存；有多份证据后再估算趋势。</p><form onSubmit={addSnapshot}><label><span>对应权益</span><select required value={entitlementId} onChange={(event) => { const next = event.target.value; setEntitlementId(next); setQuotaPolicyId(state.quotaPolicies.find((entry) => entry.entitlementId === next)?.id || ""); }}>{state.entitlements.map((entitlement) => <option value={entitlement.id} key={entitlement.id}>{itemMap.get(entitlement.itemId)?.name} · {entitlement.label}</option>)}</select></label><label><span>额度规则（建议选择）</span><select value={quotaPolicyId} onChange={(event) => setQuotaPolicyId(event.target.value)}><option value="">未指定</option>{state.quotaPolicies.filter((entry) => entry.entitlementId === entitlementId).map((entry) => <option value={entry.id} key={entry.id}>{entry.label} · {entry.metric}</option>)}</select></label><label><span>观察日期</span><input required type="date" value={observedAt} onChange={(event) => setObservedAt(event.target.value)} /></label><div className="form-pair"><label><span>窗口利用率 %（可选）</span><input type="number" min="0" max="100" value={utilizationPercent} onChange={(event) => setUtilizationPercent(event.target.value)} /></label><label><span>剩余额度（可选）</span><input type="number" min="0" step="any" value={remainingValue} onChange={(event) => setRemainingValue(event.target.value)} /></label></div><label><span>累计已用（可选）</span><input type="number" min="0" step="any" value={usedValue} onChange={(event) => setUsedValue(event.target.value)} /></label><label><span>证据名称（可选）</span><input value={evidenceName} onChange={(event) => setEvidenceName(event.target.value)} placeholder="例如 codex-usage-2026-08-27.png" /></label><label><span>观察备注（可选）</span><textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="例如最近十天主要用于项目开发，产出可直接采用" /></label>{error && <em>{error}</em>}<footer><button type="button" className="secondary-button" onClick={() => setShowSnapshot(false)}>取消</button><button className="primary-button" disabled={busy}>{busy ? "保存中…" : serverMode ? "保存原始证据" : "加入本次预览"}</button></footer></form></section></>}
     </div>
   );
 }

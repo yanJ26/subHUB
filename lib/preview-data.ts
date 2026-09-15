@@ -80,4 +80,5 @@ export const previewState: WorkspaceState = {
   workRecords: [
     { id: "work_subhub", itemId: "item_codex", title: "启动 subHUB 统一项目", occurredAt: "2030-01-20", note: "合并订阅、API、Agent 与数字资产的统一模型。", sourceLabel: "预览数据" },
   ],
+  legacyRefs: [],
 };

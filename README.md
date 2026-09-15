@@ -21,8 +21,9 @@ subHUB 是一个私有的个人数字服务、使用权益与基础设施控制�
 - Agent/服务部署实例、运行节点、版本、模型、Runtime 和安装方式。
 - Web、移动端、桌面端、CLI、API、Bot、消息及工作流入口。
 - 额度规则、不定期快照、定性效率评价与重要工作记录。
-- Owner 登录、Gateway 私有网络、SQLite WAL、乐观修订号、审计与安全导出。
-- apiHUB / agentHUB / buddyHUB 三源迁移预览、冲突确认与来源映射。
+- Owner 登录、持久原子限速、Gateway 私有网络、SQLite WAL、乐观修订号、审计查看与安全导出。
+- apiHUB / agentHUB / buddyHUB 三源增量迁移预览、逐项冲突决策、内容摘要绑定与来源映射。
+- 目录、权益/发票、资产、部署、入口、使用关系、额度规则、快照、评价和工作记录的手工维护。
 - 手工维护与三源迁移是当前信息入口；自动采集、消息入口和第三方适配器留待后续单独设计。
 
 ## 领域关系
@@ -70,7 +71,7 @@ pnpm test
 pnpm lint
 ```
 
-测试覆盖规范化存储、迁移字段保留和 ID 重映射、冲突阻断、敏感信息扫描、HTTP 认证边界、页面构建与渲染。
+测试覆盖运行时数据契约、事务回滚、迁移幂等与冲突处理、敏感信息扫描、并发登录限速、Web 会话/Origin/请求体边界、成本和生命周期口径、业务备份恢复、页面构建与渲染。
 
 ## Docker / VPS
 
@@ -86,6 +87,24 @@ docker compose up -d --build
 - SQLite：Docker 命名卷 `subhub-data`
 
 Gateway 不应直接暴露到公网。
+
+Compose 默认把 Web 和 Gateway 都绑定到宿主机回环地址。生产环境必须将 SUBHUB_PUBLIC_ORIGIN 设置为浏览器实际访问的 HTTPS Origin（例如 https://subhub.example.com，不含路径）。默认使用全局 Owner 登录限速；只有反向代理会覆盖而不是追加客户端 IP 头时，才可启用 SUBHUB_TRUST_PROXY_HEADERS=true。
+
+## 备份与恢复
+
+设置页的“业务 JSON”适合迁移与人工恢复，包含同一修订版的业务实体和来源映射，不包含密码、内部 Token、审计日志或登录限速状态。恢复必须先预检，提交时再次校验文件摘要和目标修订号。
+
+完整 SQLite 备份包含 schema、审计与汇率缓存，使用 Node 内置 SQLite 在线备份 API，可在 Gateway 运行时执行：
+
+    docker compose exec subhub-gateway node scripts/backup.mjs /backups
+
+完整恢复必须先停止 Web 与 Gateway，再从备份卷运行恢复工具；工具会验证来源、创建恢复前安全副本、替换数据库并再次做完整性与外键检查：
+
+    docker compose stop subhub subhub-gateway
+    docker compose run --rm subhub-gateway node scripts/restore.mjs /backups/subhub-YYYY-MM-DD.sqlite
+    docker compose up -d
+
+备份默认保留最近 14 份，可用 SUBHUB_BACKUP_RETENTION 调整。命名卷不能代替异机备份，应另外将备份文件同步到受控存储。完整操作与反向代理要求见 [运维手册](docs/operations.md)。
 
 当前里程碑不接入任何自动信息来源。未来若增加消息、网页或其他外部入口，将作为独立适配层建设，不改变核心领域模型，也不能绕过 Gateway 的认证、校验与审计边界。
 
