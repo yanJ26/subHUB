@@ -2,7 +2,7 @@ import "./globals.css";
 
 export const metadata = {
   title: "subHUB｜数字服务与资产控制台",
-  description: "简单管理个人订阅、续费、到期和数字资产。",
+  description: "简单管理个人服务、订阅、续费、到期和数字资产。",
   applicationName: "subHUB",
 };
 

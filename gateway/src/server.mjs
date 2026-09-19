@@ -6,7 +6,7 @@ import { loadConfig, validateRuntimeConfig } from "./config.mjs";
 import { fetchEcbRates } from "./exchange-rates.mjs";
 import { parseIntakeWithModel } from "./intake-llm.mjs";
 import { evaluateIntakeResult } from "./intake-policy.mjs";
-import { addIntakeSubscription, applyIntakeSubscriptionUpdate } from "./intake-workspace.mjs";
+import { addIntakeService, addIntakeSubscription, applyIntakeSubscriptionUpdate } from "./intake-workspace.mjs";
 import { mergeMigrationWorkspace, previewLegacyMigration, resolveMigrationConflicts } from "./migration.mjs";
 import { findLikelySecretPaths, sha256, verifyBearer } from "./security.mjs";
 import { assertExpectedRevision, assertWorkspaceState } from "./validation.mjs";
@@ -276,17 +276,19 @@ export function createGateway(config = loadConfig(), database, { fetchExchangeRa
         if (draft.status !== "pending_confirmation") throw new Error("intake_draft_not_pending");
         if (Date.parse(draft.expiresAt) <= now().getTime()) throw new Error("intake_draft_expired");
         if (draft.expectedRevision !== db.getRevision()) throw new Error("revision_conflict");
-        const isUpdate = draft.payload?.op === "update";
-        const next = isUpdate
+        const operation = draft.payload?.op;
+        const next = operation === "update"
           ? applyIntakeSubscriptionUpdate(db.getWorkspace(), draft.payload)
-          : addIntakeSubscription(db.getWorkspace(), draft.payload);
+          : operation === "create_service"
+            ? addIntakeService(db.getWorkspace(), draft.payload)
+            : addIntakeSubscription(db.getWorkspace(), draft.payload);
         assertWorkspaceState(next);
         const label = String(draft.payload.serviceName || draft.payload.planLabel || "").slice(0, 200);
         const workspace = db.replaceWorkspace(next, {
-          actor: "intake:owner", summary: `${isUpdate ? "Owner-confirmed subscription update" : "Owner-confirmed subscription intake"}: ${label}`,
+          actor: "intake:owner", summary: `${operation === "update" ? "Owner-confirmed subscription update" : operation === "create_service" ? "Owner-confirmed service intake" : "Owner-confirmed subscription intake"}: ${label}`,
           expectedRevision: draft.expectedRevision, intakeDraftId: draft.id,
         });
-        return sendJson(response, 200, { status: "committed", op: isUpdate ? "update" : "create", workspace, revision: db.getRevision(), requestId });
+        return sendJson(response, 200, { status: "committed", op: operation === "update" ? "update" : operation === "create_service" ? "create_service" : "create", workspace, revision: db.getRevision(), requestId });
       }
 
       if (request.method === "PUT" && url.pathname === "/v1/web/state") {

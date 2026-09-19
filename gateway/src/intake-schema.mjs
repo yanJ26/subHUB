@@ -1,5 +1,5 @@
 export const INTAKE_FIELDS = [
-  "serviceName", "providerName", "role", "website", "planName", "billingMode",
+  "serviceName", "providerName", "role", "adoptionStatus", "website", "planName", "billingMode",
   "amount", "currency", "billingCycle", "renewsAt", "expiresAt", "autoRenew",
   "reminderDays", "channel", "tags", "notes", "invoiceStatus", "invoiceNumber", "invoiceUrl",
 ];
@@ -12,6 +12,7 @@ const subscriptionProperties = {
   serviceName: nullableString,
   providerName: nullableString,
   role: { type: ["string", "null"], enum: ["developer_tool", "agent", "api", "chat", "model", "app", "platform", "cloud", "other", null] },
+  adoptionStatus: { type: ["string", "null"], enum: ["active", "trial", "considering", "unused", "paused", "retired", null] },
   website: nullableString,
   planName: nullableString,
   billingMode: { type: ["string", "null"], enum: ["subscription", "pay_as_you_go", "token_pack", "trial", "free", "bundled", "one_time", "self_hosted", "hybrid", null] },
@@ -30,7 +31,7 @@ const subscriptionProperties = {
   invoiceUrl: nullableString,
 };
 
-export const ALLOWED_INTENTS = ["create_subscription", "update_subscription", "unknown"];
+export const ALLOWED_INTENTS = ["create_service", "create_subscription", "update_subscription", "unknown"];
 
 const subscriptionObject = {
   type: "object", additionalProperties: false,

@@ -163,6 +163,29 @@ test("natural-language intake previews and atomically commits a complete subscri
   }, { config: { modelApiKey: "test-key", model: "test-model" }, parseIntake: async () => parsed });
 });
 
+test("natural-language intake records an unsubscribed service without creating an entitlement", async () => {
+  const parsed = {
+    intent: "create_service", target: null,
+    subscription: { serviceName: "Kimi", providerName: "Moonshot AI", role: "chat", adoptionStatus: "active", notes: "偶尔使用" },
+    changes: {}, confidence: 0.98, missingFields: [], riskFlags: [],
+  };
+  await withGateway(async (base) => {
+    const previewResponse = await fetch(`${base}/v1/web/intake`, { method: "POST", headers: ownerHeaders, body: JSON.stringify({ message: "把 Kimi 列进来，我没有订阅，只是偶尔使用" }) });
+    assert.equal(previewResponse.status, 201);
+    const preview = await previewResponse.json();
+    assert.equal(preview.draft.payload.op, "create_service");
+    assert.match(preview.draft.summary, /未订阅/);
+
+    const commitResponse = await fetch(`${base}/v1/web/intake/drafts/${preview.draft.id}/commit`, { method: "POST", headers: ownerHeaders, body: "{}" });
+    assert.equal(commitResponse.status, 200);
+    const committed = await commitResponse.json();
+    assert.equal(committed.op, "create_service");
+    assert.equal(committed.workspace.catalog[0].name, "Kimi");
+    assert.equal(committed.workspace.catalog[0].adoptionStatus, "active");
+    assert.equal(committed.workspace.entitlements.length, 0);
+  }, { config: { modelApiKey: "test-key", model: "test-model" }, parseIntake: async () => parsed });
+});
+
 test("natural-language intake updates an existing subscription in place", async () => {
   const seed = {
     providers: [{ id: "p1", name: "OpenAI" }],

@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { DashboardView } from "./dashboard-view";
-import { EntitlementsView } from "./entitlements-view";
+import { ServicesView } from "./services-view";
 import { ItemDrawer } from "./item-drawer";
 import { AssetsView } from "./assets-view";
 import { WorkspaceEditor, type EditorKind } from "./workspace-editor";
@@ -11,11 +11,11 @@ import { previewState } from "@/lib/preview-data";
 import type { ExchangeRateSnapshot, WorkspaceState } from "@/lib/domain";
 import { defaultExchangeRates } from "@/lib/metrics";
 
-type View = "overview" | "subscriptions" | "assets";
+type View = "overview" | "services" | "assets";
 
 const nav: Array<{ id: View; label: string; icon: string }> = [
   { id: "overview", label: "总览", icon: "⌂" },
-  { id: "subscriptions", label: "订阅", icon: "◇" },
+  { id: "services", label: "服务", icon: "◇" },
   { id: "assets", label: "资产", icon: "◫" },
 ];
 
@@ -114,16 +114,16 @@ export function SubHubApp() {
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">s</span><div><strong>subHUB</strong><small>PERSONAL SUBSCRIPTIONS</small></div></div>
-      <nav>{nav.map((item) => <button className={view === item.id ? "active" : ""} key={item.id} onClick={() => setView(item.id)}><span>{item.icon}</span><b>{item.label}</b>{item.id === "subscriptions" && <em>{state.entitlements.length}</em>}</button>)}</nav>
+      <nav>{nav.map((item) => <button className={view === item.id ? "active" : ""} key={item.id} onClick={() => setView(item.id)}><span>{item.icon}</span><b>{item.label}</b>{item.id === "services" && <em>{state.catalog.length}</em>}</button>)}</nav>
       <div className="sidebar-spacer" />
       {connection !== "server" && <section className="preview-note"><span>PREVIEW DATA</span><strong>界面预览</strong><p>当前显示演示数据，不会写入你的数据库。</p></section>}
       <footer><i className={connection === "server" ? "online" : ""} /><span><strong>{connection === "server" ? "私人数据已连接" : connection === "preview" ? "本机预览模式" : "连接不可用"}</strong><small>{connection === "server" ? "SQLite · Owner session" : "演示数据不会写入"}</small></span>{connection === "server" && <button className="logout-button" onClick={() => void logout()}>退出</button>}</footer>
     </aside>
 
     <main className="main-content">
-      <header className="topbar"><div><span className="kicker">SUBSCRIPTIONS · ASSETS</span><h1>{title}</h1></div><div className="topbar-actions"><label className="search-box"><span>⌕</span><input value={search} onChange={(event) => { setSearch(event.target.value); if (event.target.value) setView("subscriptions"); }} placeholder="搜索订阅、服务商或方案" /></label><button className="quick-button" onClick={() => { setView("overview"); window.setTimeout(() => document.getElementById("smart-intake-input")?.focus(), 0); }}>◇ 一句话录入</button></div></header>
-      {view === "overview" && <><SmartIntakePanel configured={intakeConfigured} serverMode={connection === "server"} onConfiguredChange={setIntakeConfigured} onCommitted={(workspace, nextRevision) => { setState(workspace); setRevision(nextRevision); }} /><DashboardView state={state} exchangeRates={exchangeRates} onOpenItem={setSelectedItemId} onShowSubscriptions={() => setView("subscriptions")} /></>}
-      {view === "subscriptions" && <EntitlementsView state={state} search={search} exchangeRates={exchangeRates} onOpenItem={setSelectedItemId} onAdd={() => setEditor({ kind: "quickSubscription" })} onEdit={(editId) => setEditor({ kind: "entitlement", editId })} />}
+      <header className="topbar"><div><span className="kicker">SERVICES · ASSETS</span><h1>{title}</h1></div><div className="topbar-actions"><label className="search-box"><span>⌕</span><input value={search} onChange={(event) => { setSearch(event.target.value); if (event.target.value) setView("services"); }} placeholder="搜索服务、厂商或方案" /></label><button className="quick-button" onClick={() => { setView("overview"); window.setTimeout(() => document.getElementById("smart-intake-input")?.focus(), 0); }}>◇ 一句话录入</button></div></header>
+      {view === "overview" && <><SmartIntakePanel configured={intakeConfigured} serverMode={connection === "server"} onConfiguredChange={setIntakeConfigured} onCommitted={(workspace, nextRevision) => { setState(workspace); setRevision(nextRevision); }} /><DashboardView state={state} exchangeRates={exchangeRates} onOpenItem={setSelectedItemId} onShowServices={() => setView("services")} /></>}
+      {view === "services" && <ServicesView state={state} search={search} onOpenItem={setSelectedItemId} onAddService={() => setEditor({ kind: "catalog" })} onAddSubscription={() => setEditor({ kind: "quickSubscription" })} onEditItem={(editId) => setEditor({ kind: "catalog", editId })} />}
       {view === "assets" && <AssetsView state={state} onOpenItem={setSelectedItemId} onAdd={() => setEditor({ kind: "asset" })} onEditAsset={(editId) => setEditor({ kind: "asset", editId })} />}
     </main>
 

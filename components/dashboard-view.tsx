@@ -5,7 +5,7 @@ type Props = {
   state: WorkspaceState;
   exchangeRates: ExchangeRateSnapshot;
   onOpenItem: (id: string) => void;
-  onShowSubscriptions: () => void;
+  onShowServices: () => void;
 };
 
 const dateFormatter = new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" });
@@ -27,7 +27,7 @@ function dateHint(value?: string) {
   return `${days} 天后`;
 }
 
-export function DashboardView({ state, exchangeRates, onOpenItem, onShowSubscriptions }: Props) {
+export function DashboardView({ state, exchangeRates, onOpenItem, onShowServices }: Props) {
   const summary = workspaceSummary(state, exchangeRates.rates);
   const providerMap = new Map(state.providers.map((provider) => [provider.id, provider]));
   const itemMap = new Map(state.catalog.map((item) => [item.id, item]));
@@ -61,7 +61,7 @@ export function DashboardView({ state, exchangeRates, onOpenItem, onShowSubscrip
       </section>
 
       <section className="panel subscription-preview">
-        <header className="panel-header"><div><span className="kicker">SUBSCRIPTIONS</span><h2>订阅一览</h2></div><button className="text-button" onClick={onShowSubscriptions}>查看全部订阅 →</button></header>
+        <header className="panel-header"><div><span className="kicker">SUBSCRIPTIONS</span><h2>订阅一览</h2></div><button className="text-button" onClick={onShowServices}>查看全部服务 →</button></header>
         <div className="subscription-preview-head"><span>服务 / 方案</span><span>费用</span><span>下次续费</span><span>权益到期</span></div>
         <div className="subscription-preview-body">
           {subscriptions.map((entitlement) => {

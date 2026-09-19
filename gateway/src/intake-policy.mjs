@@ -1,5 +1,6 @@
 const values = {
   roles: new Set(["developer_tool", "agent", "api", "chat", "model", "app", "platform", "cloud", "other"]),
+  adoptionStatuses: new Set(["active", "trial", "considering", "unused", "paused", "retired"]),
   billingModes: new Set(["subscription", "pay_as_you_go", "token_pack", "trial", "free", "bundled", "one_time", "self_hosted", "hybrid"]),
   currencies: new Set(["CNY", "USD", "EUR", "HKD", "GBP", "JPY"]),
   billingCycles: new Set(["monthly", "yearly", "none"]),
@@ -7,7 +8,7 @@ const values = {
 };
 
 const labels = {
-  serviceName: "服务", providerName: "服务商", role: "类型", planName: "方案", billingMode: "计费方式",
+  serviceName: "服务", providerName: "服务商", role: "类型", adoptionStatus: "使用状态", planName: "方案", billingMode: "计费方式",
   amount: "金额", currency: "币种", billingCycle: "周期", renewsAt: "下次续费", expiresAt: "权益到期",
   autoRenew: "自动续费", reminderDays: "提前提醒", channel: "购买渠道", tags: "标签", invoiceStatus: "发票状态",
   invoiceNumber: "发票号码", invoiceUrl: "发票链接", website: "官网", notes: "备注",
@@ -25,11 +26,12 @@ function validDate(value) {
 function formatValue(field, value) {
   if (Array.isArray(value)) return value.length ? value.join("、") : "无";
   if (typeof value === "boolean") return value ? "是" : "否";
-  const named = { monthly: "月付", yearly: "年付", none: "无固定周期", subscription: "订阅", pay_as_you_go: "按量", trial: "试用", free: "免费", issued: "已开票", pending: "待开票", paid: "已支付", reimbursed: "已报销" };
+  const named = { monthly: "月付", yearly: "年付", none: "无固定周期", subscription: "订阅", pay_as_you_go: "按量", trial: "试用", free: "免费", active: "正在使用", considering: "关注中", unused: "暂未使用", paused: "已暂停", retired: "已停用", issued: "已开票", pending: "待开票", paid: "已支付", reimbursed: "已报销" };
   return named[value] || String(value ?? "未填写");
 }
 
 const UPDATABLE = new Set(["planName", "billingMode", "amount", "currency", "billingCycle", "renewsAt", "expiresAt", "autoRenew", "channel", "reminderDays", "tags", "notes"]);
+const SERVICE_FIELDS = new Set(["serviceName", "providerName", "role", "adoptionStatus", "website", "notes"]);
 const ENTITLEMENT_FIELD = { planName: "label" };
 
 function entitlementField(field) { return ENTITLEMENT_FIELD[field] || field; }
@@ -38,6 +40,7 @@ function validateFields(fields, config) {
   const issues = [];
   if (fields.amount !== undefined && (!Number.isFinite(fields.amount) || fields.amount < 0 || fields.amount > 1_000_000)) issues.push(issue("invalid_amount", "金额必须在 0 到 1,000,000 之间"));
   if (fields.role && !values.roles.has(fields.role)) issues.push(issue("invalid_role", "服务类型不受支持"));
+  if (fields.adoptionStatus && !values.adoptionStatuses.has(fields.adoptionStatus)) issues.push(issue("invalid_adoption_status", "使用状态不受支持"));
   if (fields.billingMode && !values.billingModes.has(fields.billingMode)) issues.push(issue("invalid_billing_mode", "计费方式不受支持"));
   if (fields.currency && !values.currencies.has(fields.currency)) issues.push(issue("invalid_currency", "币种不受支持"));
   if (fields.billingCycle && !values.billingCycles.has(fields.billingCycle)) issues.push(issue("invalid_billing_cycle", "计费周期不受支持"));
@@ -59,6 +62,12 @@ function createDraft(fields) {
   return { status: "draft_ready", payload: { op: "create", ...fields }, summary: lines.join("\n") };
 }
 
+function createServiceDraft(fields) {
+  const lines = [`新增服务：${fields.serviceName}`, "订阅状态：未订阅（不会创建费用或续费记录）"];
+  for (const [field, value] of Object.entries(fields)) lines.push(`${labels[field] || field}：${formatValue(field, value)}`);
+  return { status: "draft_ready", payload: { op: "create_service", ...fields }, summary: lines.join("\n") };
+}
+
 function updateDraft(workspace, item, entitlement, changes) {
   const lines = [`修改订阅：${item.name}（${entitlement.label}）`];
   for (const [field, value] of Object.entries(changes)) {
@@ -74,8 +83,22 @@ function updateDraft(workspace, item, entitlement, changes) {
 
 export function evaluateIntakeResult(parsed, workspace, config) {
   if (parsed.riskFlags.length) return { status: "rejected", issues: parsed.riskFlags.map((flag) => issue("model_risk", flag)) };
-  if (parsed.intent === "unknown") return { status: "needs_clarification", issues: [issue("unknown_intent", "目前只能用自然语言新增订阅或修改已有订阅，请说明是新增还是修改，以及服务名称。")] };
+  if (parsed.intent === "unknown") return { status: "needs_clarification", issues: [issue("unknown_intent", "目前可以新增未订阅服务、新增订阅或修改已有订阅，请说明服务名称和你的意图。")] };
   if (parsed.confidence < config.confidenceThreshold) return { status: "needs_clarification", issues: [issue("low_confidence", `解析置信度 ${parsed.confidence.toFixed(2)} 低于阈值，请补充更明确的信息`)] };
+
+  if (parsed.intent === "create_service") {
+    const fields = parsed.subscription;
+    const issues = [];
+    if (!fields.serviceName) issues.push(issue("missing_required", "请至少说明服务名称"));
+    const subscriptionFields = Object.keys(fields).filter((field) => !SERVICE_FIELDS.has(field));
+    if (subscriptionFields.length) issues.push(issue("unexpected_subscription_fields", `你说的是未订阅服务，但同时出现了订阅字段：${subscriptionFields.map((field) => labels[field] || field).join("、")}；请确认是否实际存在订阅。`));
+    issues.push(...validateFields(fields, config));
+    if (fields.serviceName && workspace.catalog.some((item) => item.name.trim().toLocaleLowerCase() === fields.serviceName.trim().toLocaleLowerCase())) {
+      issues.push(issue("possible_duplicate", `服务列表中已经存在“${fields.serviceName}”，无需重复添加。`));
+    }
+    if (issues.length) return { status: "needs_clarification", issues };
+    return createServiceDraft(fields);
+  }
 
   if (parsed.intent === "create_subscription") {
     const fields = parsed.subscription;

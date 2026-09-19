@@ -25,11 +25,12 @@ test("renders subHUB metadata and application shell", async () => {
 });
 
 test("business models exclude raw credentials and include assets", async () => {
-  const [domain, editor, app, smartIntake] = await Promise.all([
+  const [domain, editor, app, smartIntake, services] = await Promise.all([
     readFile(new URL("../lib/domain.ts", import.meta.url), "utf8"),
     readFile(new URL("../components/workspace-editor.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/subhub-app.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/smart-intake-panel.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/services-view.tsx", import.meta.url), "utf8"),
   ]);
   const entitlementType = domain.match(/export type Entitlement = \{[\s\S]*?\n\};/)?.[0] ?? "";
   const assetType = domain.match(/export type Asset = \{[\s\S]*?\n\};/)?.[0] ?? "";
@@ -41,12 +42,14 @@ test("business models exclude raw credentials and include assets", async () => {
   assert.match(editor, /添加数字资产/);
   assert.match(app, /quickSubscription/);
   assert.match(app, /一句话录入/);
-  assert.match(smartIntake, /像平常说话一样说明新增或修改/);
+  assert.match(smartIntake, /不会为未订阅工具虚构费用/);
   assert.match(smartIntake, /生成草稿/);
   assert.match(smartIntake, /确认写入/);
   assert.match(app, /label: "总览"/);
-  assert.match(app, /label: "订阅"/);
+  assert.match(app, /label: "服务"/);
   assert.match(app, /label: "资产"/);
+  assert.match(services, /未订阅/);
+  assert.match(services, /只记录服务，不生成费用/);
   assert.doesNotMatch(app, /数据与连接|快照与效率|使用地图|完整目录/);
   assert.match(app, /type="password"/);
 });

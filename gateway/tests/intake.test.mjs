@@ -33,6 +33,16 @@ test("intake normalization parses update target and changes", () => {
   assert.deepEqual(parsed.subscription, {});
 });
 
+test("intake normalization preserves a service-only record without commercial fields", () => {
+  const parsed = normalizeIntakeResult({
+    intent: "create_service", target: null,
+    subscription: { serviceName: " Kimi ", providerName: "Moonshot AI", role: "chat", adoptionStatus: "active", notes: "偶尔使用", amount: null },
+    changes: {}, confidence: 0.97, missingFields: [], riskFlags: [],
+  });
+  assert.equal(parsed.intent, "create_service");
+  assert.deepEqual(parsed.subscription, { serviceName: "Kimi", providerName: "Moonshot AI", role: "chat", adoptionStatus: "active", notes: "偶尔使用" });
+});
+
 function codexWorkspace(extra = {}) {
   return {
     providers: [{ id: "p1", name: "OpenAI" }],
@@ -43,6 +53,19 @@ function codexWorkspace(extra = {}) {
 }
 
 const updateBase = { riskFlags: [], missingFields: [], confidence: 0.95, subscription: {} };
+
+test("intake policy creates a service-only draft and blocks fake or duplicate subscriptions", () => {
+  const parsed = { intent: "create_service", target: null, subscription: { serviceName: "Kimi", providerName: "Moonshot AI", role: "chat", adoptionStatus: "active" }, changes: {}, confidence: 0.96, missingFields: [], riskFlags: [] };
+  const result = evaluateIntakeResult(parsed, emptyWorkspace, config);
+  assert.equal(result.status, "draft_ready");
+  assert.equal(result.payload.op, "create_service");
+  assert.match(result.summary, /订阅状态：未订阅/);
+
+  const withPrice = evaluateIntakeResult({ ...parsed, subscription: { ...parsed.subscription, amount: 20 } }, emptyWorkspace, config);
+  assert.equal(withPrice.issues.some((entry) => entry.code === "unexpected_subscription_fields"), true);
+  const duplicate = evaluateIntakeResult(parsed, { ...emptyWorkspace, catalog: [{ id: "i1", providerId: "p1", name: "Kimi" }] }, config);
+  assert.equal(duplicate.issues.some((entry) => entry.code === "possible_duplicate"), true);
+});
 
 test("intake policy builds a before→after update draft for a unique target", () => {
   const result = evaluateIntakeResult({ ...updateBase, intent: "update_subscription", target: "Codex", changes: { expiresAt: "2026-10-17" } }, codexWorkspace(), config);

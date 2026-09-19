@@ -54,7 +54,7 @@ export function SmartIntakePanel({ configured, serverMode, onConfiguredChange, o
       if (!response.ok) throw new Error(response.status === 409 ? "数据已经变化，请重新生成草稿。" : result.error === "intake_draft_expired" ? "草稿已过期，请重新生成。" : result.error || "确认写入失败");
       onCommitted(result.workspace, result.revision);
       setDraft(null); setMessage("");
-      setIssues([{ code: "committed", message: result.op === "update" ? "已按草稿更新对应订阅，其余字段保持不变。" : "订阅已经写入，相关服务和可选发票也已自动处理。" }]);
+      setIssues([{ code: "committed", message: result.op === "update" ? "已按草稿更新对应订阅，其余字段保持不变。" : result.op === "create_service" ? "服务已经加入列表，没有创建任何订阅或费用记录。" : "订阅已经写入，相关服务和可选发票也已自动处理。" }]);
     } catch (error) {
       setIssues([{ code: "commit_failed", message: error instanceof Error ? error.message : "确认写入失败" }]);
     } finally { setBusy(false); }
@@ -62,9 +62,9 @@ export function SmartIntakePanel({ configured, serverMode, onConfiguredChange, o
 
   const available = configured && serverMode;
   return <section className="smart-intake-panel">
-    <div className="smart-intake-copy"><span className="kicker">QUICK INTAKE</span><h2>一句话新增或修改订阅</h2><p>像平常说话一样说明新增或修改，不必按表单顺序。系统先整理成草稿；修改时会清楚展示“旧值 → 新值”。</p></div>
+    <div className="smart-intake-copy"><span className="kicker">QUICK INTAKE</span><h2>一句话记录服务和订阅</h2><p>已订阅、免费使用或只是想列进来，都可以直接说明。系统会区分服务和订阅，不会为未订阅工具虚构费用。</p></div>
     <div className="smart-intake-input">
-      <textarea id="smart-intake-input" rows={3} maxLength={12000} value={message} onChange={(event) => { setMessage(event.target.value); if (draft) void closeDraft(true); }} placeholder="新增：Qoder Pro，每月 20 美元，10 月 18 日续费、11 月 18 日到期。修改：Codex 的到期时间改为 10 月 17 日" />
+      <textarea id="smart-intake-input" rows={3} maxLength={12000} value={message} onChange={(event) => { setMessage(event.target.value); if (draft) void closeDraft(true); }} placeholder="例如：把 Kimi 列进来，我没有订阅，只是偶尔使用。或：新增 Qoder Pro，每月 20 美元，10 月 18 日续费" />
       <footer><small>不要输入 API Key、Token、密码、Cookie 或完整卡号 <button type="button" className="inline-settings-button" onClick={() => setSettingsOpen(true)}>模型设置</button></small><button className="primary-button" disabled={!available || busy || !message.trim()} onClick={() => void generateDraft()}>{busy ? "正在整理…" : "生成草稿"}</button></footer>
     </div>
     {!serverMode && <p className="smart-intake-warning">预览模式不能写入真实数据。</p>}
