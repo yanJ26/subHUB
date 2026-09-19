@@ -35,9 +35,9 @@ export const previewState: WorkspaceState = {
     { id: "item_cloudflare", providerId: "provider_cloudflare", name: "Cloudflare", description: "DNS、证书和边缘网络服务", roles: ["domain", "cloud", "security"], models: [], adoptionStatus: "active", lastReviewedAt: "2030-01-20" },
   ],
   entitlements: [
-    { id: "ent_codex", itemId: "item_codex", label: "ChatGPT 方案（演示）", billingMode: "subscription", amount: 20, currency: "USD", billingCycle: "monthly", renewsAt: "2030-02-01", autoRenew: true, notes: "同一权益可覆盖多个 OpenAI 使用入口。" },
+    { id: "ent_codex", itemId: "item_codex", label: "ChatGPT 方案（演示）", billingMode: "subscription", amount: 20, currency: "USD", billingCycle: "monthly", renewsAt: "2030-02-01", autoRenew: true, notes: "虚构预览数据：同一权益可覆盖多个使用入口。" },
     { id: "ent_minimax", itemId: "item_minimax_api", label: "Token Plan（演示）", billingMode: "token_pack", amount: null, currency: "CNY", billingCycle: "none", expiresAt: "2030-03-01", autoRenew: false, credentialLabel: "示例 API 标签（不保存 Key）" },
-    { id: "ent_example_domain", itemId: "item_domain_registration", label: "example.net 注册权益", billingMode: "subscription", amount: null, currency: "USD", billingCycle: "yearly", expiresAt: "2030-12-31", autoRenew: true, reminderDays: 30, tags: ["基础设施"], notes: "预览数据：注册商与金额待迁移后核对。" },
+    { id: "ent_example_domain", itemId: "item_domain_registration", label: "example.net 注册权益（演示）", billingMode: "subscription", amount: null, currency: "USD", billingCycle: "yearly", expiresAt: "2030-12-31", autoRenew: true, reminderDays: 30, tags: ["基础设施"], notes: "虚构预览数据。" },
   ],
   invoices: [
     { id: "invoice_codex", entitlementId: "ent_codex", status: "pending" },
@@ -47,7 +47,7 @@ export const previewState: WorkspaceState = {
     { id: "tag_infra", name: "基础设施", background: "#eaf1ff", color: "#315faa", sortOrder: 1 },
   ],
   assets: [
-    { id: "asset_example_domain", kind: "domain", name: "example.net", domainName: "example.net", status: "active", providerId: "provider_registrar", itemId: "item_domain_registration", registrar: "待核对", expiresAt: "2030-12-31", autoRenew: true, notes: "关联 DNS、证书和站点部署。" },
+    { id: "asset_example_domain", kind: "domain", name: "example.net（演示）", domainName: "example.net", status: "active", providerId: "provider_registrar", itemId: "item_domain_registration", registrar: "示例注册商", expiresAt: "2030-12-31", autoRenew: true, notes: "虚构域名资产，用于演示 DNS、证书和站点关联。" },
     { id: "asset_dev_pc", kind: "device", name: "开发电脑", status: "active", deviceType: "laptop", os: "Windows", location: "本地" },
     { id: "asset_vps", kind: "server", name: "主力 VPS", status: "active", deviceType: "vps", os: "Linux", location: "云端" },
   ],
@@ -73,12 +73,12 @@ export const previewState: WorkspaceState = {
     { id: "snap_minimax_2", entitlementId: "ent_minimax", quotaPolicyId: "quota_minimax_balance", observedAt: "2030-01-20T12:00:00.000Z", remainingValue: 750, sourceLabel: "虚构演示快照" },
   ],
   evaluations: [
-    { id: "eval_codex", itemId: "item_codex", evaluatedAt: "2030-01-20", utilization: "high", outputValue: "core", quotaPressure: "normal", trend: "rising", recommendation: "continue", confidence: "medium", evidenceCount: 3, observationDays: 26, note: "高频且产出可直接采用。" },
-    { id: "eval_minimax", itemId: "item_minimax_api", evaluatedAt: "2030-01-20", utilization: "normal", outputValue: "good", quotaPressure: "low", trend: "stable", recommendation: "continue", confidence: "medium", evidenceCount: 2, observationDays: 13 },
-    { id: "eval_workbuddy", itemId: "item_workbuddy", evaluatedAt: "2030-01-20", utilization: "low", outputValue: "fair", quotaPressure: "none", trend: "falling", recommendation: "observe", confidence: "low", evidenceCount: 1, observationDays: 20 },
+    { id: "eval_codex", itemId: "item_codex", evaluatedAt: "2030-01-20", utilization: "normal", outputValue: "good", quotaPressure: "normal", trend: "stable", recommendation: "continue", confidence: "low", evidenceCount: 2, observationDays: 15, note: "虚构评价，仅用于演示。" },
+    { id: "eval_minimax", itemId: "item_minimax_api", evaluatedAt: "2030-01-20", utilization: "normal", outputValue: "good", quotaPressure: "low", trend: "stable", recommendation: "continue", confidence: "low", evidenceCount: 2, observationDays: 15 },
+    { id: "eval_workbuddy", itemId: "item_workbuddy", evaluatedAt: "2030-01-20", utilization: "low", outputValue: "fair", quotaPressure: "none", trend: "stable", recommendation: "observe", confidence: "low", evidenceCount: 1, observationDays: 15 },
   ],
   workRecords: [
-    { id: "work_subhub", itemId: "item_codex", title: "启动 subHUB 统一项目", occurredAt: "2030-01-20", note: "合并订阅、API、Agent 与数字资产的统一模型。", sourceLabel: "预览数据" },
+    { id: "work_subhub", itemId: "item_codex", title: "演示：启动统一项目", occurredAt: "2030-01-20", note: "虚构工作记录，用于展示订阅、API、Agent 与数字资产的统一模型。", sourceLabel: "虚构预览数据" },
   ],
   legacyRefs: [],
 };

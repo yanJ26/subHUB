@@ -1,11 +1,16 @@
 # subHUB
 
-subHUB 是一个私有的个人服务、订阅与数字资产工具。它用三个页面管理大模型官方订阅、API、Agent 工具、域名、设备、服务器、账号、代码仓库和网站：**总览、服务、资产**。
+> [!NOTE]
+> subHUB 由 [apiHUB](https://github.com/yanJ26/apiHUB)、[agentHUB](https://github.com/yanJ26/agentHUB) 和 [buddyHUB](https://github.com/yanJ26/buddyHUB) 三个个人项目演进整合而来。三个旧项目已于 **2026 年 9 月 19 日**停止维护并转为私有归档；subHUB 是后续唯一维护的统一项目。
+
+subHUB 是一个自托管的个人服务、订阅与数字资产工具。它用三个页面管理大模型官方订阅、API、Agent 工具、域名、设备、服务器、账号、代码仓库和网站：**总览、服务、资产**。
+
+本仓库公开的是应用代码、文档与虚构示例数据，不包含真实 API Key、Token、密码、Cookie、模型密钥、生产数据库或个人订阅记录。部署者必须自行生成密钥，并通过未纳入 Git 的环境变量或 Secret 管理设施保存。
 
 ## 产品原则
 
 - **一句话优先**：自由描述服务或订阅，不要求先理解厂商、目录、权益和发票之间的内部关系。
-- **三层概念分开**：Codex、Qoder、Kimi 是服务；付费、试用、免费方案或按量关系是订阅记录；`subhub.example.com`、电脑和 VPS 是自己控制的资产。
+- **三层概念分开**：Codex、Qoder、Kimi 是服务；付费、试用、免费方案或按量关系是订阅记录；示例域名、电脑和 VPS 是自己控制的资产。
 - **单一日期**：日常用「到期 / 下次续费」一个日期表达本期结束与下次扣款；底层仍保留续费/到期两列以兼容分期等旧数据，但界面统一显示。
 - **来源可追溯**：apiHUB、agentHUB、buddyHUB 只作为只读迁移来源，每条迁移记录保留来源 ID 和内容哈希。
 - **密钥隔离**：业务数据只保存凭据标签，不接受或保存真实 Key、Token、密码与 Cookie。
@@ -121,9 +126,9 @@ Compose 默认把 Web 和 Gateway 都绑定到宿主机回环地址。生产环�
 
 自然语言录入和模型密钥边界见 [`docs/natural-language-intake.md`](docs/natural-language-intake.md) 与 [`docs/model-byok.md`](docs/model-byok.md)。
 
-## 三个旧项目
+## 项目沿革与三个旧项目
 
-subHUB 以 apiHUB 的工程基线开始建设，同时参考另外两个项目。三个仓库保持独立，不删除、不覆盖，也不作为 subHUB 的运行时依赖：
+subHUB 以 apiHUB 的工程基线开始建设，并吸收 agentHUB 与 buddyHUB 中适合统一产品的设计。三个旧仓库现作为私有历史归档，不作为 subHUB 的运行时依赖：
 
 | 来源 | 基线 | 在 subHUB 中的主要作用 |
 | --- | --- | --- |

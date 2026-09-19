@@ -26,6 +26,6 @@ buddyHUB 已验证了“权益优先”的方向，但现有迁移会遗漏 apiH
 
 ## 后果
 
-- 新模型能同时表达 ChatGPT 官方订阅、OpenAI API、无订阅的 WorkBuddy Agent 记录和 `subhub.example.com` 域名。
+- 新模型能同时表达 ChatGPT 官方订阅、OpenAI API、无订阅的 WorkBuddy Agent 记录和示例域名资产。
 - 迁移需要显式预览和人工冲突确认。
 - 旧项目可以随时独立恢复和核对。
