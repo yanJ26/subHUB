@@ -11,7 +11,7 @@ subHUB 按单 Owner、单 Web 实例、单 Gateway 实例设计。Web 和 Gatewa
 - SUBHUB_WEB_INTERNAL_TOKEN：与密码、会话 Secret 均不同的随机内部 Token。
 - SUBHUB_PUBLIC_ORIGIN：精确 HTTPS Origin，例如 https://subhub.example.com，不含 /code/subhub。
 - NEXT_PUBLIC_BASE_PATH：反向代理使用的路径前缀；根路径部署时留空。
-- SUBHUB_SECRETS_MASTER_KEY：Base64 编码的独立 32 字节主密钥，用于加密设置页保存的模型 API Key。
+- SUBHUB_SECRETS_MASTER_KEY：Base64 编码的独立 32 字节主密钥，用于加密首页“模型设置”保存的模型 API Key。
 
 生成主密钥：
 
@@ -28,11 +28,11 @@ SUBHUB_TRUST_PROXY_HEADERS 默认保持 false，此时所有请求共享 Owner �
 - Compose 为两项服务配置了健康检查；Web 等待 Gateway 健康后启动。
 - Gateway 捕获 SIGTERM / SIGINT，停止接受连接并在关闭数据库前等待 HTTP Server 完成。
 - Gateway 日志只记录时间、requestId、方法、路径、状态、耗时和受控错误码，不记录请求体或认证头。
-- 设置页可查看最近审计记录；审计摘要完全由服务端生成。
+- 审计摘要完全由服务端生成并保存在数据库中；精简后的个人界面不提供日常审计页。
 
 ## 业务 JSON
 
-业务 JSON 由 Gateway 从同一数据库修订版生成。恢复流程分成 preview 和 commit，文件内容或数据库修订发生变化后，旧的恢复标识立即失效。该文件不等于数据库备份，不包含审计、登录限速或数据库 migration 元数据。
+业务 JSON 由 Gateway 从同一数据库修订版生成。恢复流程分成 preview 和 commit，文件内容或数据库修订发生变化后，旧的恢复标识立即失效。该文件不等于数据库备份，不包含审计、登录限速或数据库 migration 元数据。相关接口和服务器能力继续保留，但不占用日常导航。
 
 ## SQLite 备份
 

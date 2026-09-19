@@ -1,31 +1,22 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { CatalogView } from "./catalog-view";
 import { DashboardView } from "./dashboard-view";
 import { EntitlementsView } from "./entitlements-view";
-import { EvaluationsView } from "./evaluations-view";
 import { ItemDrawer } from "./item-drawer";
-import { SettingsView } from "./settings-view";
-import { UsageMapView } from "./usage-map-view";
 import { AssetsView } from "./assets-view";
 import { WorkspaceEditor, type EditorKind } from "./workspace-editor";
-import { RelationshipEditor, type RelationshipEditorKind } from "./relationship-editor";
 import { SmartIntakePanel } from "./smart-intake-panel";
 import { previewState } from "@/lib/preview-data";
 import type { ExchangeRateSnapshot, WorkspaceState } from "@/lib/domain";
 import { defaultExchangeRates } from "@/lib/metrics";
 
-type View = "overview" | "catalog" | "entitlements" | "assets" | "map" | "evaluations" | "settings";
+type View = "overview" | "subscriptions" | "assets";
 
 const nav: Array<{ id: View; label: string; icon: string }> = [
   { id: "overview", label: "总览", icon: "⌂" },
-  { id: "catalog", label: "完整目录", icon: "▦" },
-  { id: "entitlements", label: "使用权益", icon: "◇" },
-  { id: "assets", label: "资产与域名", icon: "◫" },
-  { id: "map", label: "使用地图", icon: "↗" },
-  { id: "evaluations", label: "快照与效率", icon: "◎" },
-  { id: "settings", label: "数据与连接", icon: "⚙" },
+  { id: "subscriptions", label: "订阅", icon: "◇" },
+  { id: "assets", label: "资产", icon: "◫" },
 ];
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
@@ -40,7 +31,6 @@ export function SubHubApp() {
   const [exchangeRates, setExchangeRates] = useState<ExchangeRateSnapshot>(defaultExchangeRates);
   const [intakeConfigured, setIntakeConfigured] = useState(false);
   const [editor, setEditor] = useState<{ kind: EditorKind; editId?: string } | null>(null);
-  const [relationshipEditor, setRelationshipEditor] = useState<{ kind: RelationshipEditorKind; editId?: string; entitlementId?: string } | null>(null);
   const [connection, setConnection] = useState<ConnectionMode>("checking");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -119,32 +109,27 @@ export function SubHubApp() {
   }
 
   if (connection === "checking") return <main className="auth-screen"><div className="auth-card"><span className="brand-mark">s</span><span className="kicker">SUBHUB</span><h1>正在检查本机连接</h1><p>正在确认安全会话与 Gateway 状态。</p></div></main>;
-  if (connection === "login") return <main className="auth-screen"><form className="auth-card" onSubmit={login}><span className="brand-mark">s</span><span className="kicker">OWNER ACCESS</span><h1>进入 subHUB</h1><p>这是你的私人数字服务与资产控制台，请输入站点密码。</p><label><span>站点密码</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{loginError && <em>{loginError}</em>}<button className="primary-button">登录</button></form></main>;
+  if (connection === "login") return <main className="auth-screen"><form className="auth-card" onSubmit={login}><span className="brand-mark">s</span><span className="kicker">OWNER ACCESS</span><h1>进入 subHUB</h1><p>这是你的私人订阅与数字资产工具，请输入站点密码。</p><label><span>站点密码</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{loginError && <em>{loginError}</em>}<button className="primary-button">登录</button></form></main>;
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><span className="brand-mark">s</span><div><strong>subHUB</strong><small>DIGITAL CONTROL PLANE</small></div></div>
-      <nav>{nav.map((item) => <button className={view === item.id ? "active" : ""} key={item.id} onClick={() => setView(item.id)}><span>{item.icon}</span><b>{item.label}</b>{item.id === "catalog" && <em>{state.catalog.length}</em>}</button>)}</nav>
+      <div className="brand"><span className="brand-mark">s</span><div><strong>subHUB</strong><small>PERSONAL SUBSCRIPTIONS</small></div></div>
+      <nav>{nav.map((item) => <button className={view === item.id ? "active" : ""} key={item.id} onClick={() => setView(item.id)}><span>{item.icon}</span><b>{item.label}</b>{item.id === "subscriptions" && <em>{state.entitlements.length}</em>}</button>)}</nav>
       <div className="sidebar-spacer" />
-      {connection !== "server" && <section className="preview-note"><span>PREVIEW DATA</span><strong>迁移前预览</strong><p>当前个人状态和日期用于验证界面，导入旧项目后必须人工确认。</p></section>}
+      {connection !== "server" && <section className="preview-note"><span>PREVIEW DATA</span><strong>界面预览</strong><p>当前显示演示数据，不会写入你的数据库。</p></section>}
       <footer><i className={connection === "server" ? "online" : ""} /><span><strong>{connection === "server" ? "私人数据已连接" : connection === "preview" ? "本机预览模式" : "连接不可用"}</strong><small>{connection === "server" ? "SQLite · Owner session" : "演示数据不会写入"}</small></span>{connection === "server" && <button className="logout-button" onClick={() => void logout()}>退出</button>}</footer>
     </aside>
 
     <main className="main-content">
-      <header className="topbar"><div><span className="kicker">SERVICES · RIGHTS · ASSETS</span><h1>{title}</h1></div><div className="topbar-actions"><label className="search-box"><span>⌕</span><input value={search} onChange={(event) => { setSearch(event.target.value); if (event.target.value) setView("catalog"); }} placeholder="搜索产品、厂商、角色或模型" /></label><button className="quick-button" onClick={() => { setView("overview"); window.setTimeout(() => document.getElementById("smart-intake-input")?.focus(), 0); }}>◇ 一句话录入</button></div></header>
-      {view === "overview" && <><SmartIntakePanel configured={intakeConfigured} serverMode={connection === "server"} onOpenSettings={() => setView("settings")} onCommitted={(workspace, nextRevision) => { setState(workspace); setRevision(nextRevision); }} /><DashboardView state={state} exchangeRates={exchangeRates} onOpenItem={setSelectedItemId} onShowCatalog={() => setView("catalog")} /></>}
-      {view === "catalog" && <CatalogView state={state} search={search} onOpenItem={setSelectedItemId} onAdd={() => setEditor({ kind: "catalog" })} />}
-      {view === "entitlements" && <EntitlementsView state={state} exchangeRates={exchangeRates} onOpenItem={setSelectedItemId} onAdd={() => setEditor({ kind: "quickSubscription" })} onEdit={(editId) => setEditor({ kind: "entitlement", editId })} />}
-      {view === "assets" && <AssetsView state={state} onOpenItem={setSelectedItemId} onAdd={() => setEditor({ kind: "asset" })} onAddDeployment={() => setEditor({ kind: "deployment" })} onEditAsset={(editId) => setEditor({ kind: "asset", editId })} onEditDeployment={(editId) => setEditor({ kind: "deployment", editId })} />}
-      {view === "map" && <UsageMapView state={state} onOpenItem={setSelectedItemId} onAddLink={() => setRelationshipEditor({ kind: "usageLink" })} onAddSurface={() => setRelationshipEditor({ kind: "surface" })} onEditLink={(editId) => setRelationshipEditor({ kind: "usageLink", editId })} />}
-      {view === "evaluations" && <EvaluationsView state={state} revision={revision} onOpenItem={setSelectedItemId} serverMode={connection === "server"} onWorkspaceChange={(next) => { setState(next); if (connection === "server") void loadServerState(); }} onAddEvaluation={() => setRelationshipEditor({ kind: "evaluation" })} onAddWorkRecord={() => setRelationshipEditor({ kind: "workRecord" })} />}
-      {view === "settings" && <SettingsView state={state} revision={revision} mode={connection === "server" ? "server" : connection === "preview" ? "preview" : "unavailable"} onIntakeConfiguredChange={setIntakeConfigured} onWorkspaceChange={(next) => { setState(next); if (connection === "server") void loadServerState(); }} />}
+      <header className="topbar"><div><span className="kicker">SUBSCRIPTIONS · ASSETS</span><h1>{title}</h1></div><div className="topbar-actions"><label className="search-box"><span>⌕</span><input value={search} onChange={(event) => { setSearch(event.target.value); if (event.target.value) setView("subscriptions"); }} placeholder="搜索订阅、服务商或方案" /></label><button className="quick-button" onClick={() => { setView("overview"); window.setTimeout(() => document.getElementById("smart-intake-input")?.focus(), 0); }}>◇ 一句话录入</button></div></header>
+      {view === "overview" && <><SmartIntakePanel configured={intakeConfigured} serverMode={connection === "server"} onConfiguredChange={setIntakeConfigured} onCommitted={(workspace, nextRevision) => { setState(workspace); setRevision(nextRevision); }} /><DashboardView state={state} exchangeRates={exchangeRates} onOpenItem={setSelectedItemId} onShowSubscriptions={() => setView("subscriptions")} /></>}
+      {view === "subscriptions" && <EntitlementsView state={state} search={search} exchangeRates={exchangeRates} onOpenItem={setSelectedItemId} onAdd={() => setEditor({ kind: "quickSubscription" })} onEdit={(editId) => setEditor({ kind: "entitlement", editId })} />}
+      {view === "assets" && <AssetsView state={state} onOpenItem={setSelectedItemId} onAdd={() => setEditor({ kind: "asset" })} onEditAsset={(editId) => setEditor({ kind: "asset", editId })} />}
     </main>
 
-    <nav className="mobile-nav">{nav.map((item) => <button className={view === item.id ? "active" : ""} key={item.id} onClick={() => setView(item.id)}><span>{item.icon}</span><small>{item.label.replace("完整", "").replace("使用", "")}</small></button>)}</nav>
-    <ItemDrawer state={state} itemId={selectedItemId} onClose={() => setSelectedItemId(null)} onEditItem={(editId) => setEditor({ kind: "catalog", editId })} onAddEntitlement={() => setEditor({ kind: "entitlement" })} onEditEntitlement={(editId) => setEditor({ kind: "entitlement", editId })} onAddAsset={() => setEditor({ kind: "asset" })} onEditAsset={(editId) => setEditor({ kind: "asset", editId })} onAddDeployment={() => setEditor({ kind: "deployment" })} onEditDeployment={(editId) => setEditor({ kind: "deployment", editId })} onAddSurface={() => setRelationshipEditor({ kind: "surface" })} onEditSurface={(editId) => setRelationshipEditor({ kind: "surface", editId })} onAddQuota={(entitlementId) => setRelationshipEditor({ kind: "quotaPolicy", entitlementId })} onEditQuota={(editId) => setRelationshipEditor({ kind: "quotaPolicy", editId })} onAddEvaluation={() => setRelationshipEditor({ kind: "evaluation" })} onEditEvaluation={(editId) => setRelationshipEditor({ kind: "evaluation", editId })} onAddWorkRecord={() => setRelationshipEditor({ kind: "workRecord" })} onEditWorkRecord={(editId) => setRelationshipEditor({ kind: "workRecord", editId })} onAddSnapshot={() => { setSelectedItemId(null); setView("evaluations"); }} />
+    <nav className="mobile-nav">{nav.map((item) => <button className={view === item.id ? "active" : ""} key={item.id} onClick={() => setView(item.id)}><span>{item.icon}</span><small>{item.label}</small></button>)}</nav>
+    <ItemDrawer state={state} itemId={selectedItemId} onClose={() => setSelectedItemId(null)} onEditItem={(editId) => setEditor({ kind: "catalog", editId })} onAddEntitlement={() => setEditor({ kind: "entitlement" })} onEditEntitlement={(editId) => setEditor({ kind: "entitlement", editId })} onAddAsset={() => setEditor({ kind: "asset" })} onEditAsset={(editId) => setEditor({ kind: "asset", editId })} />
     <WorkspaceEditor kind={editor?.kind || null} editId={editor?.editId} state={state} contextItemId={selectedItemId} onClose={() => setEditor(null)} onSave={saveWorkspace} />
-    <RelationshipEditor kind={relationshipEditor?.kind || null} editId={relationshipEditor?.editId} contextEntitlementId={relationshipEditor?.entitlementId} state={state} contextItemId={selectedItemId} onClose={() => setRelationshipEditor(null)} onSave={saveWorkspace} />
     {reauth && <><button className="drawer-backdrop reauth-backdrop" aria-label="需要重新登录" /><form className="auth-card reauth-card" onSubmit={login}><span className="kicker">SESSION EXPIRED</span><h1>会话已过期</h1><p>重新登录后可继续提交，当前编辑表单不会被清空。</p><label><span>站点密码</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{loginError && <em>{loginError}</em>}<button className="primary-button">重新登录</button></form></>}
   </div>;
 }

@@ -1,13 +1,13 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useState } from "react";
 import type {
   AdoptionStatus, AssetKind, AssetStatus, BillingMode, Currency, InvoiceStatus,
-  DeploymentStatus, EntitlementStatus, ItemRole, WorkspaceState,
+  EntitlementStatus, ItemRole, WorkspaceState,
 } from "@/lib/domain";
 import { buildQuickSubscriptionWorkspace } from "@/lib/quick-subscription";
 
-export type EditorKind = "quickSubscription" | "catalog" | "entitlement" | "asset" | "deployment";
+export type EditorKind = "quickSubscription" | "catalog" | "entitlement" | "asset";
 
 type Props = {
   kind: EditorKind | null;
@@ -55,7 +55,6 @@ export function WorkspaceEditor({ kind, editId, state, contextItemId, onClose, o
     {kind === "catalog" && <CatalogForm editId={editId} state={state} busy={busy} error={error} onClose={onClose} onSubmit={submit} />}
     {kind === "entitlement" && <EntitlementForm editId={editId} state={state} contextItemId={contextItemId} busy={busy} error={error} onClose={onClose} onSubmit={submit} />}
     {kind === "asset" && <AssetForm editId={editId} state={state} busy={busy} error={error} onClose={onClose} onSubmit={submit} />}
-    {kind === "deployment" && <DeploymentForm editId={editId} state={state} contextItemId={contextItemId} busy={busy} error={error} onClose={onClose} onSubmit={submit} />}
   </section></>;
 }
 
@@ -75,7 +74,6 @@ function Header({ kicker, title, onClose }: { kicker: string; title: string; onC
 function Footer({ busy, onClose, error, onArchive, archiveLabel = "归档", saveDisabled = false }: { busy: boolean; onClose: () => void; error: string; onArchive?: () => void; archiveLabel?: string; saveDisabled?: boolean }) {
   return <>{error && <em>{error}</em>}<footer>{onArchive && <button type="button" className="danger-button" disabled={busy} onClick={onArchive}>{archiveLabel}</button>}<span className="form-spacer" /><button type="button" className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={busy || saveDisabled}>{busy ? "保存中…" : "保存"}</button></footer></>;
 }
-
 const quickRoleOptions: Array<[ItemRole, string]> = [
   ["developer_tool", "开发工具"], ["agent", "Agent"], ["api", "API"], ["chat", "聊天服务"],
   ["model", "模型"], ["app", "应用"], ["platform", "平台/服务"], ["cloud", "云服务"], ["other", "其他"],
@@ -120,7 +118,7 @@ function QuickSubscriptionForm({ state, busy, error, onClose, onSubmit }: FormPr
     void onSubmit(result.workspace, `Quick-added subscription ${serviceName.trim()} / ${planName.trim() || "订阅方案"}`);
   }
 
-  return <><Header kicker="ONE-STEP RECORD" title="快速添加订阅" onClose={onClose} /><p>一次保存服务、厂商、方案、费用、续费、到期和发票。资产、部署、入口与额度可以在确有需要时再补充。</p><form onSubmit={save}>
+  return <><Header kicker="ONE-STEP RECORD" title="手工添加订阅" onClose={onClose} /><p>一次保存服务、厂商、方案、费用、续费、到期和发票；不需要先创建其他记录。</p><form onSubmit={save}>
     <div className="form-pair"><label><span>服务名称 *</span><input required list="quick-service-options" value={serviceName} onChange={(event) => changeService(event.target.value)} placeholder="例如：Codex" /><datalist id="quick-service-options">{state.catalog.map((item) => <option key={item.id} value={item.name} />)}</datalist></label><label><span>服务商</span><input value={providerName} onChange={(event) => setProviderName(event.target.value)} placeholder="例如：OpenAI" /></label></div>
     <div className="form-pair"><label><span>类型</span><select value={role} onChange={(event) => setRole(event.target.value as ItemRole)}>{quickRoleOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>方案名称</span><input value={planName} onChange={(event) => setPlanName(event.target.value)} placeholder="例如：Pro / Team · 1 席位" /></label></div>
     <div className="form-pair"><label><span>计费方式</span><select value={billingMode} onChange={(event) => setBillingMode(event.target.value as BillingMode)}><option value="subscription">订阅</option><option value="pay_as_you_go">按量计费</option><option value="token_pack">Token 包</option><option value="trial">试用</option><option value="free">免费</option><option value="bundled">套餐内含</option><option value="one_time">一次性购买</option><option value="self_hosted">自托管</option><option value="hybrid">混合费用</option></select></label><label><span>金额</span><span className="compound-field"><select value={currency} onChange={(event) => setCurrency(event.target.value as Currency)}><option>CNY</option><option>USD</option><option>EUR</option><option>HKD</option><option>GBP</option><option>JPY</option></select><input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="未知可留空" /></span></label></div>
@@ -170,7 +168,7 @@ function CatalogForm({ editId, state, busy, error, onClose, onSubmit }: FormProp
     void onSubmit({ ...state, catalog: state.catalog.map((entry) => entry.id === existing.id ? { ...entry, adoptionStatus: "retired" as const, lastReviewedAt: new Date().toISOString().slice(0, 10) } : entry) }, `Archived catalog item ${existing.name}`);
   }
 
-  return <><Header kicker="CATALOG ITEM" title={existing ? "编辑产品或服务" : "仅添加目录项目"} onClose={onClose} /><p>{existing ? "维护产品本身的说明、角色和使用状态。" : "适合没有订阅费用的产品或 Agent；有价格、续费或到期信息时，请使用顶部“快速添加”。"}</p><form onSubmit={save}>
+  return <><Header kicker="SERVICE" title={existing ? "编辑服务" : "添加服务"} onClose={onClose} /><p>修改服务名称、厂商、类型和使用状态。</p><form onSubmit={save}>
     <div className="form-pair"><label><span>名称 *</span><input required value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>厂商 *</span><input required value={providerName} onChange={(event) => setProviderName(event.target.value)} /></label></div>
     <label><span>说明</span><textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
     <fieldset className="role-picker"><legend>角色（可多选）</legend>{roleOptions.map(([value, label]) => <label key={value}><input type="checkbox" checked={roles.includes(value)} onChange={(event) => setRoles((current) => event.target.checked ? [...new Set([...current, value])] : current.filter((entry) => entry !== value))} /><span>{label}</span></label>)}</fieldset>
@@ -228,11 +226,11 @@ function EntitlementForm({ editId, state, contextItemId, busy, error, onClose, o
     void onSubmit({ ...state, entitlements: state.entitlements.map((entry) => entry.id === existing.id ? { ...entry, status: "cancelled" as const, autoRenew: false } : entry) }, `Archived entitlement ${existing.label}`);
   }
 
-  return <><Header kicker="ENTITLEMENT" title={existing ? "编辑订阅或使用权益" : "添加订阅或使用权益"} onClose={onClose} /><p>权益是费用、续费和额度的唯一真相，可被多个入口或部署共享。</p><form onSubmit={save}>
+  return <><Header kicker="SUBSCRIPTION" title={existing ? "编辑订阅" : "添加订阅"} onClose={onClose} /><p>记录方案、费用、下次续费和实际到期日期。</p><form onSubmit={save}>
     <label><span>产品或服务 *</span><select required value={itemId} onChange={(event) => setItemId(event.target.value)}>{state.catalog.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     <div className="form-pair"><label><span>方案名称 *</span><input required value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Plus / Pro / API PAYG" /></label><label><span>计费方式</span><select value={billingMode} onChange={(event) => setBillingMode(event.target.value as BillingMode)}><option value="subscription">订阅</option><option value="pay_as_you_go">按量</option><option value="token_pack">Token 包</option><option value="trial">试用</option><option value="free">免费</option><option value="self_hosted">自托管</option><option value="hybrid">混合</option><option value="bundled">套餐内含</option><option value="one_time">一次性购买</option></select></label></div>
     <div className="form-pair"><label><span>金额</span><span className="compound-field"><select value={currency} onChange={(event) => setCurrency(event.target.value as Currency)}><option>CNY</option><option>USD</option><option>EUR</option><option>HKD</option><option>GBP</option><option>JPY</option></select><input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></span></label><label><span>周期</span><select value={billingCycle} onChange={(event) => setBillingCycle(event.target.value as "monthly" | "yearly" | "none")}><option value="monthly">月付</option><option value="yearly">年付</option><option value="none">无固定周期</option></select></label></div>
-    <label><span>权益状态</span><select value={status} onChange={(event) => setStatus(event.target.value as EntitlementStatus)}><option value="active">有效</option><option value="trial">试用</option><option value="paused">暂停</option><option value="expired">到期</option><option value="cancelled">取消 / 归档</option></select></label>
+    <label><span>订阅状态</span><select value={status} onChange={(event) => setStatus(event.target.value as EntitlementStatus)}><option value="active">有效</option><option value="trial">试用</option><option value="paused">暂停</option><option value="expired">到期</option><option value="cancelled">取消 / 归档</option></select></label>
     <div className="form-pair"><label><span>下次续费</span><input type="date" value={renewsAt} onChange={(event) => setRenewsAt(event.target.value)} /></label><label><span>权益到期</span><input type="date" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label></div>
     <div className="form-pair"><label><span>购买渠道</span><input value={channel} onChange={(event) => setChannel(event.target.value)} /></label><label><span>提前提醒天数</span><input type="number" min="0" max="365" value={reminderDays} onChange={(event) => setReminderDays(event.target.value)} /></label></div>
     <label className="editor-checkbox"><input type="checkbox" checked={autoRenew} onChange={(event) => setAutoRenew(event.target.checked)} /><span>自动续费</span></label>
@@ -286,46 +284,6 @@ function AssetForm({ editId, state, busy, error, onClose, onSubmit }: FormProps)
     {kind === "domain" && <><div className="form-pair"><label><span>注册商</span><input value={registrar} onChange={(event) => setRegistrar(event.target.value)} /></label><label><span>到期日</span><input type="date" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label></div><label className="editor-checkbox"><input type="checkbox" checked={autoRenew} onChange={(event) => setAutoRenew(event.target.checked)} /><span>域名自动续费</span></label></>}
     {kind !== "domain" && <div className="form-pair"><label><span>设备/节点类型</span><input value={deviceType} onChange={(event) => setDeviceType(event.target.value)} placeholder="laptop / vps / nas" /></label><label><span>系统/平台</span><input value={os} onChange={(event) => setOs(event.target.value)} /></label></div>}
     <div className="form-pair"><label><span>位置</span><input value={location} onChange={(event) => setLocation(event.target.value)} /></label><label><span>URL</span><input type="url" value={url} onChange={(event) => setUrl(event.target.value)} /></label></div>
-    <label><span>备注</span><textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
-    <Footer busy={busy} onClose={onClose} error={error} onArchive={existing && existing.status !== "retired" ? archive : undefined} />
-  </form></>;
-}
-
-function DeploymentForm({ editId, state, contextItemId, busy, error, onClose, onSubmit }: FormProps & { contextItemId?: string | null }) {
-  const existing = state.deployments.find((entry) => entry.id === editId);
-  const eligibleAssets = useMemo(() => state.assets.filter((asset) => ["device", "server"].includes(asset.kind)), [state.assets]);
-  const [itemId, setItemId] = useState(existing?.itemId || contextItemId || state.catalog.find((item) => item.roles.includes("agent"))?.id || state.catalog[0]?.id || "");
-  const [assetId, setAssetId] = useState(existing?.assetId || eligibleAssets[0]?.id || "");
-  const [name, setName] = useState(existing?.name || "");
-  const [role, setRole] = useState<"primary" | "secondary" | "testing">(existing?.role || "primary");
-  const [status, setStatus] = useState<DeploymentStatus>(existing?.status || "online");
-  const [version, setVersion] = useState(existing?.version || "");
-  const [model, setModel] = useState(existing?.model || "");
-  const [runtime, setRuntime] = useState(existing?.runtime || "");
-  const [installMethod, setInstallMethod] = useState(existing?.installMethod || "");
-  const [notes, setNotes] = useState(existing?.notes || "");
-
-  function save(event: FormEvent) {
-    event.preventDefault();
-    const deployment = { ...(existing || {}), id: existing?.id || id("deployment"), itemId, assetId, name: name.trim(), role, status,
-      version: version.trim() || undefined, model: model.trim() || undefined,
-      runtime: runtime.trim() || undefined, installMethod: installMethod.trim() || undefined,
-      notes: notes.trim() || undefined };
-    const deployments = existing ? state.deployments.map((entry) => entry.id === existing.id ? deployment : entry) : [...state.deployments, deployment];
-    void onSubmit({ ...state, deployments }, `${existing ? "Updated" : "Added"} deployment ${deployment.name}`);
-  }
-
-  function archive() {
-    if (!existing) return;
-    void onSubmit({ ...state, deployments: state.deployments.map((entry) => entry.id === existing.id ? { ...entry, status: "retired" as const } : entry) }, `Archived deployment ${existing.name}`);
-  }
-
-  return <><Header kicker="DEPLOYMENT" title={existing ? "编辑部署关系" : "建立部署关系"} onClose={onClose} /><p>记录哪个产品或 Agent 在哪台设备、服务器或云节点上运行。</p><form onSubmit={save}>
-    <div className="form-pair"><label><span>产品 / Agent *</span><select required value={itemId} onChange={(event) => setItemId(event.target.value)}>{state.catalog.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>运行节点 *</span><select required value={assetId} onChange={(event) => setAssetId(event.target.value)}>{eligibleAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label></div>
-    <label><span>实例名称 *</span><input required value={name} onChange={(event) => setName(event.target.value)} /></label>
-    <div className="form-pair"><label><span>角色</span><select value={role} onChange={(event) => setRole(event.target.value as "primary" | "secondary" | "testing")}><option value="primary">主力</option><option value="secondary">辅助</option><option value="testing">测试</option></select></label><label><span>状态</span><select value={status} onChange={(event) => setStatus(event.target.value as DeploymentStatus)}><option value="online">在线</option><option value="degraded">受限</option><option value="offline">离线</option><option value="unknown">未知</option><option value="retired">已归档</option></select></label></div>
-    <div className="form-pair"><label><span>版本</span><input value={version} onChange={(event) => setVersion(event.target.value)} /></label><label><span>模型 / 服务</span><input value={model} onChange={(event) => setModel(event.target.value)} /></label></div>
-    <div className="form-pair"><label><span>运行方式</span><input value={runtime} onChange={(event) => setRuntime(event.target.value)} placeholder="Docker / Desktop / Vendor Cloud" /></label><label><span>安装方式</span><input value={installMethod} onChange={(event) => setInstallMethod(event.target.value)} /></label></div>
     <label><span>备注</span><textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
     <Footer busy={busy} onClose={onClose} error={error} onArchive={existing && existing.status !== "retired" ? archive : undefined} />
   </form></>;
