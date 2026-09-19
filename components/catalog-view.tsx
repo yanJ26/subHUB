@@ -25,7 +25,7 @@ export function CatalogView({ state, search, onOpenItem, onAdd }: Props) {
 
   return (
     <div className="view-stack">
-      <section className="section-intro"><div><span className="kicker">MARKET + PERSONAL STATUS</span><h2>完整目录</h2><p>目录中的“暂未使用”是明确结论，不是缺失数据。订阅、API、Agent、域名和云服务都只是可组合角色。</p></div><button className="primary-button" onClick={onAdd}>＋ 添加目录项目</button></section>
+      <section className="section-intro"><div><span className="kicker">MARKET + PERSONAL STATUS</span><h2>完整目录</h2><p>订阅请使用顶部“快速添加”；这里用于补充没有费用记录的产品、Agent 或服务。</p></div><button className="primary-button" onClick={onAdd}>＋ 仅添加目录</button></section>
       <div className="filter-bar" role="group" aria-label="使用状态筛选">
         <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>全部 <b>{state.catalog.length}</b></button>
         {statusOrder.map((status) => <button className={filter === status ? "active" : ""} key={status} onClick={() => setFilter(status)}>{adoptionLabels[status]} <b>{state.catalog.filter((item) => item.adoptionStatus === status).length}</b></button>)}

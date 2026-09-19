@@ -362,6 +362,13 @@ button { color: inherit; }
 .workspace-editor { width: min(680px, calc(100vw - 24px)); }
 .workspace-editor .compound-field { display: grid; grid-template-columns: 92px 1fr; gap: 7px; }
 .workspace-editor .compound-field select, .workspace-editor .compound-field input { min-width: 0; }
+.quick-optional { overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: #fafcfa; }
+.quick-optional summary { padding: 11px 13px; color: var(--green); font-size: 10px; font-weight: 750; cursor: pointer; }
+.quick-optional[open] summary { border-bottom: 1px solid var(--line); }
+.quick-optional-fields { padding: 12px; display: grid; gap: 12px; }
+.modal-note { padding: 10px 12px; display: flex; align-items: flex-start; gap: 9px; border-radius: 10px; color: #655b38; background: #fff8df; }
+.modal-note > span { color: #a47816; font-weight: 800; }
+.modal-note p { margin: 0; font-size: 9px; line-height: 1.55; }
 .editor-checkbox, .conflict-confirm { display: flex !important; align-items: flex-start; gap: 9px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
 .editor-checkbox input, .conflict-confirm input { width: auto !important; margin-top: 2px; }
 .editor-checkbox span, .conflict-confirm span { margin: 0 !important; line-height: 1.5; }

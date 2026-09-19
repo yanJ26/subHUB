@@ -24,7 +24,7 @@ export function EntitlementsView({ state, exchangeRates, onOpenItem, onAdd, onEd
   const entries = [...state.entitlements].sort((left, right) => (nextEntitlementDate(left) || "9999").localeCompare(nextEntitlementDate(right) || "9999"));
   return (
     <div className="view-stack">
-      <section className="section-intro"><div><span className="kicker">SINGLE SOURCE OF TRUTH</span><h2>使用权益</h2><p>费用和到期时间只在这里记录一次；多个 Agent、API、域名或应用可以共享同一项权益。</p></div><button className="primary-button" onClick={onAdd}>＋ 添加权益</button></section>
+      <section className="section-intro"><div><span className="kicker">SINGLE SOURCE OF TRUTH</span><h2>使用权益</h2><p>日常订阅可一次填写服务、方案、费用、续费和到期；资产、部署和使用关系需要时再补充。</p></div><button className="primary-button" onClick={onAdd}>＋ 添加订阅</button></section>
       <section className="panel entitlement-table">
         <div className="entitlement-head"><span>产品 / 权益</span><span>计费方式</span><span>原始金额</span><span>月度等价</span><span>续费或到期</span><span>使用位置</span></div>
         {entries.map((entitlement) => {

@@ -35,7 +35,9 @@ test("business models exclude raw credentials and include assets", async () => {
   assert.doesNotMatch(entitlementType, /apiKey|accessToken|secret/i);
   assert.doesNotMatch(assetType, /apiKey|accessToken|secret/i);
   assert.match(assetType, /domainName/);
+  assert.match(editor, /快速添加订阅/);
   assert.match(editor, /添加订阅或使用权益/);
   assert.match(editor, /添加数字资产/);
+  assert.match(app, /quickSubscription/);
   assert.match(app, /type="password"/);
 });

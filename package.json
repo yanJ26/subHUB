@@ -10,7 +10,7 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "pnpm run typecheck && node --test tests/metrics.test.ts tests/session-security.test.ts && pnpm run build && node --test tests/rendered-html.test.mjs && node --test gateway/tests/*.test.mjs",
+    "test": "pnpm run typecheck && node --test tests/metrics.test.ts tests/quick-subscription.test.ts tests/session-security.test.ts && pnpm run build && node --test tests/rendered-html.test.mjs && node --test gateway/tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "test:gateway": "node --test gateway/tests/*.test.mjs",
     "test:metrics": "node --test tests/metrics.test.ts",

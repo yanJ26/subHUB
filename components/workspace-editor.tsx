@@ -5,8 +5,9 @@ import type {
   AdoptionStatus, AssetKind, AssetStatus, BillingMode, Currency, InvoiceStatus,
   DeploymentStatus, EntitlementStatus, ItemRole, WorkspaceState,
 } from "@/lib/domain";
+import { buildQuickSubscriptionWorkspace } from "@/lib/quick-subscription";
 
-export type EditorKind = "catalog" | "entitlement" | "asset" | "deployment";
+export type EditorKind = "quickSubscription" | "catalog" | "entitlement" | "asset" | "deployment";
 
 type Props = {
   kind: EditorKind | null;
@@ -50,6 +51,7 @@ export function WorkspaceEditor({ kind, editId, state, contextItemId, onClose, o
   }
 
   return <><button className="drawer-backdrop" aria-label="关闭编辑器" onClick={onClose} /><section className="snapshot-modal workspace-editor" role="dialog" aria-modal="true">
+    {kind === "quickSubscription" && <QuickSubscriptionForm state={state} busy={busy} error={error} onClose={onClose} onSubmit={submit} />}
     {kind === "catalog" && <CatalogForm editId={editId} state={state} busy={busy} error={error} onClose={onClose} onSubmit={submit} />}
     {kind === "entitlement" && <EntitlementForm editId={editId} state={state} contextItemId={contextItemId} busy={busy} error={error} onClose={onClose} onSubmit={submit} />}
     {kind === "asset" && <AssetForm editId={editId} state={state} busy={busy} error={error} onClose={onClose} onSubmit={submit} />}
@@ -72,6 +74,70 @@ function Header({ kicker, title, onClose }: { kicker: string; title: string; onC
 
 function Footer({ busy, onClose, error, onArchive, archiveLabel = "归档", saveDisabled = false }: { busy: boolean; onClose: () => void; error: string; onArchive?: () => void; archiveLabel?: string; saveDisabled?: boolean }) {
   return <>{error && <em>{error}</em>}<footer>{onArchive && <button type="button" className="danger-button" disabled={busy} onClick={onArchive}>{archiveLabel}</button>}<span className="form-spacer" /><button type="button" className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={busy || saveDisabled}>{busy ? "保存中…" : "保存"}</button></footer></>;
+}
+
+const quickRoleOptions: Array<[ItemRole, string]> = [
+  ["developer_tool", "开发工具"], ["agent", "Agent"], ["api", "API"], ["chat", "聊天服务"],
+  ["model", "模型"], ["app", "应用"], ["platform", "平台/服务"], ["cloud", "云服务"], ["other", "其他"],
+];
+
+function QuickSubscriptionForm({ state, busy, error, onClose, onSubmit }: FormProps) {
+  const [serviceName, setServiceName] = useState("");
+  const [providerName, setProviderName] = useState("");
+  const [role, setRole] = useState<ItemRole>("developer_tool");
+  const [website, setWebsite] = useState("");
+  const [planName, setPlanName] = useState("");
+  const [billingMode, setBillingMode] = useState<BillingMode>("subscription");
+  const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState<Currency>("CNY");
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly" | "none">("monthly");
+  const [renewsAt, setRenewsAt] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
+  const [autoRenew, setAutoRenew] = useState(false);
+  const [reminderDays, setReminderDays] = useState("7");
+  const [channel, setChannel] = useState("");
+  const [tags, setTags] = useState("");
+  const [notes, setNotes] = useState("");
+  const [invoiceStatus, setInvoiceStatus] = useState<InvoiceStatus>("none");
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [invoiceUrl, setInvoiceUrl] = useState("");
+
+  function changeService(value: string) {
+    setServiceName(value);
+    const existing = state.catalog.find((item) => item.name.toLocaleLowerCase() === value.trim().toLocaleLowerCase());
+    const provider = existing && state.providers.find((entry) => entry.id === existing.providerId);
+    if (provider) setProviderName(provider.name);
+  }
+
+  function save(event: FormEvent) {
+    event.preventDefault();
+    const result = buildQuickSubscriptionWorkspace(state, {
+      serviceName, providerName, role, website, planName, billingMode,
+      amount: amount === "" ? null : Number(amount), currency, billingCycle,
+      renewsAt, expiresAt, autoRenew, reminderDays: Number(reminderDays || 0),
+      channel, tags: splitList(tags), notes, invoiceStatus, invoiceNumber, invoiceUrl,
+    });
+    void onSubmit(result.workspace, `Quick-added subscription ${serviceName.trim()} / ${planName.trim() || "订阅方案"}`);
+  }
+
+  return <><Header kicker="ONE-STEP RECORD" title="快速添加订阅" onClose={onClose} /><p>一次保存服务、厂商、方案、费用、续费、到期和发票。资产、部署、入口与额度可以在确有需要时再补充。</p><form onSubmit={save}>
+    <div className="form-pair"><label><span>服务名称 *</span><input required list="quick-service-options" value={serviceName} onChange={(event) => changeService(event.target.value)} placeholder="例如：Codex" /><datalist id="quick-service-options">{state.catalog.map((item) => <option key={item.id} value={item.name} />)}</datalist></label><label><span>服务商</span><input value={providerName} onChange={(event) => setProviderName(event.target.value)} placeholder="例如：OpenAI" /></label></div>
+    <div className="form-pair"><label><span>类型</span><select value={role} onChange={(event) => setRole(event.target.value as ItemRole)}>{quickRoleOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>方案名称</span><input value={planName} onChange={(event) => setPlanName(event.target.value)} placeholder="例如：Pro / Team · 1 席位" /></label></div>
+    <div className="form-pair"><label><span>计费方式</span><select value={billingMode} onChange={(event) => setBillingMode(event.target.value as BillingMode)}><option value="subscription">订阅</option><option value="pay_as_you_go">按量计费</option><option value="token_pack">Token 包</option><option value="trial">试用</option><option value="free">免费</option><option value="bundled">套餐内含</option><option value="one_time">一次性购买</option><option value="self_hosted">自托管</option><option value="hybrid">混合费用</option></select></label><label><span>金额</span><span className="compound-field"><select value={currency} onChange={(event) => setCurrency(event.target.value as Currency)}><option>CNY</option><option>USD</option><option>EUR</option><option>HKD</option><option>GBP</option><option>JPY</option></select><input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="未知可留空" /></span></label></div>
+    <div className="form-pair"><label><span>计费周期</span><select value={billingCycle} onChange={(event) => setBillingCycle(event.target.value as "monthly" | "yearly" | "none")}><option value="monthly">按月</option><option value="yearly">按年</option><option value="none">无固定周期</option></select></label><label><span>提前提醒</span><select value={reminderDays} onChange={(event) => setReminderDays(event.target.value)}><option value="3">3 天</option><option value="7">7 天</option><option value="14">14 天</option><option value="30">30 天</option><option value="60">60 天</option></select></label></div>
+    <div className="form-pair"><label><span>下次续费</span><input type="date" value={renewsAt} onChange={(event) => setRenewsAt(event.target.value)} /></label><label><span>权益到期</span><input type="date" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label></div>
+    <label className="editor-checkbox"><input type="checkbox" checked={autoRenew} onChange={(event) => setAutoRenew(event.target.checked)} /><span>自动续费（仅记录状态，不会执行付款）</span></label>
+    <details className="quick-optional"><summary>更多选填信息</summary><div className="quick-optional-fields">
+      <label><span>购买或支付渠道</span><input value={channel} onChange={(event) => setChannel(event.target.value)} placeholder="例如：官网 · Visa 尾号 2048（不要填写完整卡号）" /></label>
+      <label><span>标签（逗号分隔）</span><input list="quick-tag-options" value={tags} onChange={(event) => setTags(event.target.value)} /><datalist id="quick-tag-options">{state.tagDefinitions.map((tag) => <option key={tag.id} value={tag.name} />)}</datalist></label>
+      <label><span>官网</span><input type="url" value={website} onChange={(event) => setWebsite(event.target.value)} placeholder="https://" /></label>
+      <div className="form-pair"><label><span>发票状态</span><select value={invoiceStatus} onChange={(event) => setInvoiceStatus(event.target.value as InvoiceStatus)}><option value="none">无需发票</option><option value="pending">待开票</option><option value="issued">已开票</option><option value="paid">已支付</option><option value="reimbursed">已报销</option></select></label><label><span>发票号码</span><input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} /></label></div>
+      <label><span>发票链接</span><input type="url" value={invoiceUrl} onChange={(event) => setInvoiceUrl(event.target.value)} placeholder="https://" /></label>
+      <label><span>备注</span><textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+    </div></details>
+    <div className="modal-note"><span>◇</span><p><strong>安全边界：</strong>不要填写 API Key、Token、密码或完整支付卡号。</p></div>
+    <Footer busy={busy} onClose={onClose} error={error} saveDisabled={!serviceName.trim()} />
+  </form></>;
 }
 
 function CatalogForm({ editId, state, busy, error, onClose, onSubmit }: FormProps) {
@@ -104,7 +170,7 @@ function CatalogForm({ editId, state, busy, error, onClose, onSubmit }: FormProp
     void onSubmit({ ...state, catalog: state.catalog.map((entry) => entry.id === existing.id ? { ...entry, adoptionStatus: "retired" as const, lastReviewedAt: new Date().toISOString().slice(0, 10) } : entry) }, `Archived catalog item ${existing.name}`);
   }
 
-  return <><Header kicker="CATALOG ITEM" title={existing ? "编辑产品或服务" : "添加产品或服务"} onClose={onClose} /><p>先记录它是什么；费用、资产和部署关系随后分别关联。</p><form onSubmit={save}>
+  return <><Header kicker="CATALOG ITEM" title={existing ? "编辑产品或服务" : "仅添加目录项目"} onClose={onClose} /><p>{existing ? "维护产品本身的说明、角色和使用状态。" : "适合没有订阅费用的产品或 Agent；有价格、续费或到期信息时，请使用顶部“快速添加”。"}</p><form onSubmit={save}>
     <div className="form-pair"><label><span>名称 *</span><input required value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>厂商 *</span><input required value={providerName} onChange={(event) => setProviderName(event.target.value)} /></label></div>
     <label><span>说明</span><textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
     <fieldset className="role-picker"><legend>角色（可多选）</legend>{roleOptions.map(([value, label]) => <label key={value}><input type="checkbox" checked={roles.includes(value)} onChange={(event) => setRoles((current) => event.target.checked ? [...new Set([...current, value])] : current.filter((entry) => entry !== value))} /><span>{label}</span></label>)}</fieldset>
