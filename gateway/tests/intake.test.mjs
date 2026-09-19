@@ -96,6 +96,16 @@ test("intake update rejects unsupported fields and invalid dates", () => {
   assert.equal(badDate.issues.some((entry) => entry.code === "invalid_date"), true);
 });
 
+test("intake rejects contradictory dates via a localized risk flag", () => {
+  const result = evaluateIntakeResult(
+    { intent: "unknown", target: null, subscription: {}, changes: {}, confidence: 0.99, missingFields: [], riskFlags: ["date_conflict"] },
+    codexWorkspace(), config,
+  );
+  assert.equal(result.status, "rejected");
+  assert.equal(result.issues[0].code, "model_risk");
+  assert.match(result.issues[0].message, /相互矛盾的日期/);
+});
+
 test("intake policy fails closed on low confidence, fake dates, and unknown tags", () => {
   const base = { intent: "create_subscription", subscription: { serviceName: "Codex" }, confidence: 0.5, missingFields: [], riskFlags: [] };
   assert.equal(evaluateIntakeResult(base, emptyWorkspace, config).status, "needs_clarification");

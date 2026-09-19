@@ -34,7 +34,7 @@ export function DashboardView({ state, exchangeRates, onOpenItem, onShowServices
   const urgent = lifecycleEvents(state).slice(0, 6).map((event) => ({ ...event, item: event.itemId ? itemMap.get(event.itemId) : undefined }));
   const activeSubscriptions = state.entitlements.filter((entry) => !["paused", "expired", "cancelled"].includes(entry.status || "active")).length;
   const subscriptions = [...state.entitlements]
-    .sort((left, right) => (left.renewsAt || left.expiresAt || "9999").localeCompare(right.renewsAt || right.expiresAt || "9999"))
+    .sort((left, right) => (nextEntitlementDate(left) || "9999").localeCompare(nextEntitlementDate(right) || "9999"))
     .slice(0, 8);
 
   return (

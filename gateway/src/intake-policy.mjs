@@ -16,6 +16,15 @@ const labels = {
 
 function issue(code, message) { return { code, message }; }
 
+const riskLabels = {
+  date_conflict: "检测到两个相互矛盾的日期，请确认哪一个作为“到期 / 下次续费”日期，或只保留一个。",
+  likely_secret: "内容疑似包含密钥、Token、密码或完整凭据，已拒绝保存。",
+};
+
+function riskMessage(flag) {
+  return riskLabels[flag] || `检测到需要人工确认的风险：${flag}`;
+}
+
 function validDate(value) {
   const match = typeof value === "string" && value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return false;
@@ -82,7 +91,7 @@ function updateDraft(workspace, item, entitlement, changes) {
 }
 
 export function evaluateIntakeResult(parsed, workspace, config) {
-  if (parsed.riskFlags.length) return { status: "rejected", issues: parsed.riskFlags.map((flag) => issue("model_risk", flag)) };
+  if (parsed.riskFlags.length) return { status: "rejected", issues: parsed.riskFlags.map((flag) => issue("model_risk", riskMessage(flag))) };
   if (parsed.intent === "unknown") return { status: "needs_clarification", issues: [issue("unknown_intent", "目前可以新增未订阅服务、新增订阅或修改已有订阅，请说明服务名称和你的意图。")] };
   if (parsed.confidence < config.confidenceThreshold) return { status: "needs_clarification", issues: [issue("low_confidence", `解析置信度 ${parsed.confidence.toFixed(2)} 低于阈值，请补充更明确的信息`)] };
 

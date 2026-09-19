@@ -326,7 +326,7 @@ button { color: inherit; }
 .drawer-record strong, .drawer-record small { display: block; }
 .drawer-record strong { font-size: 11px; }
 .drawer-record small { margin-top: 4px; color: var(--muted); font-size: 9px; }
-.drawer-date-pair { margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.drawer-date-pair { margin-top: 10px; display: grid; grid-template-columns: 1fr; gap: 8px; }
 .drawer-date-pair > span { padding: 9px; border-radius: 9px; background: white; }
 .drawer-date-pair b, .drawer-date-pair small { display: block; }
 .drawer-date-pair b { color: var(--muted); font-size: 8px; }
@@ -397,7 +397,7 @@ button { color: inherit; }
   .service-row > .product-cell { grid-column: 1 / -1; }
   .subscription-preview-head { display: none; }
   .subscription-preview-row { grid-template-columns: 1fr 1fr; gap: 12px; padding: 13px 14px; }
-  .subscription-preview-row > .product-cell, .subscription-preview-row > span:nth-child(2) { grid-column: 1 / -1; }
+  .subscription-preview-row > .product-cell { grid-column: 1 / -1; }
   .evaluation-metrics { grid-template-columns: repeat(2, 1fr); }
   .estimate-grid { grid-template-columns: 1fr; }
   .evaluation-metrics span:nth-child(2) { border-right: 0; }
