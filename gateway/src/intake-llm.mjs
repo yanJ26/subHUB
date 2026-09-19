@@ -13,7 +13,15 @@ Hard rules:
 - Resolve relative dates only from currentDate. Return dates as YYYY-MM-DD.
 - renewsAt means the next charge or renewal date. expiresAt means the date access actually ends. Do not silently substitute one for the other.
 - role must describe the service itself. Typical AI coding subscriptions are developer_tool or agent.
-- Output only the schema-conforming JSON.`;
+- Output only a single JSON object, no prose and no code fences.`;
+
+const SCHEMA_INSTRUCTION = `Return a JSON object with exactly these top-level keys: "intent", "subscription", "confidence", "missingFields", "riskFlags".
+- "intent" is "create_subscription" or "unknown".
+- "subscription" is an object containing every one of these keys (use null for any you are unsure of): ${INTAKE_JSON_SCHEMA.properties.subscription.required.join(", ")}.
+- "confidence" is a number between 0 and 1 reflecting how certain you are of the extracted fields.
+- "missingFields" and "riskFlags" are arrays of strings (empty arrays when none).
+The full JSON Schema for reference (a null means the field is unknown and must be emitted as JSON null):
+${JSON.stringify(INTAKE_JSON_SCHEMA)}`;
 
 function extractContent(payload) {
   const content = payload?.choices?.[0]?.message?.content;
@@ -29,11 +37,9 @@ export async function parseIntakeWithModel(message, config, fetchImpl = fetch) {
     headers: { Authorization: `Bearer ${config.modelApiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: config.model,
-      temperature: 0,
-      max_tokens: 1800,
-      response_format: { type: "json_schema", json_schema: { name: "subhub_subscription_intake", strict: true, schema: INTAKE_JSON_SCHEMA } },
+      max_tokens: 4096,
       messages: [
-        { role: "system", content: INTAKE_SYSTEM_PROMPT },
+        { role: "system", content: INTAKE_SYSTEM_PROMPT + "\n\n" + SCHEMA_INSTRUCTION },
         { role: "user", content: JSON.stringify({ currentDate: new Date().toISOString().slice(0, 10), allowedTags: config.allowedTags || [], message }) },
       ],
     }),
