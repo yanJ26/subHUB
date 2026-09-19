@@ -189,6 +189,7 @@ function EntitlementForm({ editId, state, contextItemId, busy, error, onClose, o
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly" | "none">(existing?.billingCycle || "monthly");
   const [status, setStatus] = useState<EntitlementStatus>(existing?.status || "active");
   const [renewsAt, setRenewsAt] = useState(existing?.renewsAt || existing?.expiresAt || "");
+  const [dateDirty, setDateDirty] = useState(false);
   const [autoRenew, setAutoRenew] = useState(existing?.autoRenew || false);
   const [channel, setChannel] = useState(existing?.channel || "");
   const [reminderDays, setReminderDays] = useState(String(existing?.reminderDays ?? 7));
@@ -205,7 +206,8 @@ function EntitlementForm({ editId, state, contextItemId, busy, error, onClose, o
       ...(existing || {}),
       id: entitlementId, itemId, label: label.trim(), billingMode,
       amount: amount === "" ? null : Number(amount), currency, billingCycle, status,
-      renewsAt: renewsAt || undefined, expiresAt: renewsAt || undefined, autoRenew,
+      ...(dateDirty ? { renewsAt: renewsAt || undefined, expiresAt: renewsAt || undefined } : {}),
+      autoRenew,
       channel: channel.trim() || undefined, reminderDays: Number(reminderDays || 0),
       tags: splitList(tags), notes: notes.trim() || undefined,
     };
@@ -229,7 +231,8 @@ function EntitlementForm({ editId, state, contextItemId, busy, error, onClose, o
     <div className="form-pair"><label><span>方案名称 *</span><input required value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Plus / Pro / API PAYG" /></label><label><span>计费方式</span><select value={billingMode} onChange={(event) => setBillingMode(event.target.value as BillingMode)}><option value="subscription">订阅</option><option value="pay_as_you_go">按量</option><option value="token_pack">Token 包</option><option value="trial">试用</option><option value="free">免费</option><option value="self_hosted">自托管</option><option value="hybrid">混合</option><option value="bundled">套餐内含</option><option value="one_time">一次性购买</option></select></label></div>
     <div className="form-pair"><label><span>金额</span><span className="compound-field"><select value={currency} onChange={(event) => setCurrency(event.target.value as Currency)}><option>CNY</option><option>USD</option><option>EUR</option><option>HKD</option><option>GBP</option><option>JPY</option></select><input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></span></label><label><span>周期</span><select value={billingCycle} onChange={(event) => setBillingCycle(event.target.value as "monthly" | "yearly" | "none")}><option value="monthly">月付</option><option value="yearly">年付</option><option value="none">无固定周期</option></select></label></div>
     <label><span>订阅状态</span><select value={status} onChange={(event) => setStatus(event.target.value as EntitlementStatus)}><option value="active">有效</option><option value="trial">试用</option><option value="paused">暂停</option><option value="expired">到期</option><option value="cancelled">取消 / 归档</option></select></label>
-    <label><span>到期 / 下次续费</span><input type="date" value={renewsAt} onChange={(event) => setRenewsAt(event.target.value)} /></label>
+    <label><span>到期 / 下次续费</span><input type="date" value={renewsAt} onChange={(event) => { setRenewsAt(event.target.value); setDateDirty(true); }} /></label>
+    {existing && existing.renewsAt && existing.expiresAt && existing.renewsAt !== existing.expiresAt && !dateDirty && <p className="date-conflict-hint">旧记录里“下次续费 {existing.renewsAt}”与“权益到期 {existing.expiresAt}”不一致。保持不改动日期会沿用原值；修改上面的日期会把两者统一为该日。</p>}
     <div className="form-pair"><label><span>购买渠道</span><input value={channel} onChange={(event) => setChannel(event.target.value)} /></label><label><span>提前提醒天数</span><input type="number" min="0" max="365" value={reminderDays} onChange={(event) => setReminderDays(event.target.value)} /></label></div>
     <label className="editor-checkbox"><input type="checkbox" checked={autoRenew} onChange={(event) => setAutoRenew(event.target.checked)} /><span>自动续费</span></label>
     <label><span>标签（逗号分隔）</span><input value={tags} onChange={(event) => setTags(event.target.value)} /></label>

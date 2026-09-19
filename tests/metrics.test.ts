@@ -33,6 +33,12 @@ test("calendar dates treat today as zero and quota reset never hides renewal", (
   assert.deepEqual(events.map((entry) => [entry.kind, entry.days]), [["renewal", 0], ["asset_expiry", 1]]);
 });
 
+test("single-date selection prefers a future date even when the stale renewal date is first", () => {
+  assert.equal(nextEntitlementDate({ ...baseEntitlement, renewsAt: "2000-09-08", expiresAt: "2099-10-17" }), "2099-10-17");
+  assert.equal(nextEntitlementDate({ ...baseEntitlement, renewsAt: "2000-01-01", expiresAt: "2010-01-01" }), "2010-01-01");
+  assert.equal(nextEntitlementDate({ ...baseEntitlement, expiresAt: "2099-05-05" }), "2099-05-05");
+});
+
 test("usage pace never combines quota policies, units, or reset-like increases", () => {
   const snapshots = [
     { id: "s1", entitlementId: "e1", quotaPolicyId: "q1", observedAt: "2026-09-01T00:00:00.000Z", remainingValue: 100, sourceLabel: "manual" },

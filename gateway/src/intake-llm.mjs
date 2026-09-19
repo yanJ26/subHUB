@@ -14,7 +14,7 @@ Hard rules:
 - Use update_subscription when the message CHANGES an existing subscription (for example its 到期/下次续费 date, price, plan, or tags): set "target" to the existing service name as the user wrote it and put only the changed fields in "changes", leaving every other "changes" field null and all "subscription" fields null.
 - Deleting data, changing settings, or any other action must use intent unknown.
 - Resolve relative dates only from currentDate. Return dates as YYYY-MM-DD.
-- There is ONE combined date field: renewsAt (labelled 到期 / 下次续费). Any date the user gives — 到期、到期时间、过期、结束、下次到期、续费、续订、下一次扣费、下次付费 — goes into renewsAt. Do not second-guess which kind it is and do not lower confidence for an ordinary date phrase; only add a missingFields note if the message gives two clearly contradictory dates.
+- There is ONE combined date field: renewsAt (labelled 到期 / 下次续费). Any date the user gives — 到期、到期时间、过期、结束、下次到期、续费、续订、下一次扣费、下次付费 — goes into renewsAt. Do not second-guess which kind it is and do not lower confidence for an ordinary date phrase. Only if the message gives two clearly contradictory dates (for example one renewal date and one different expiry date), set intent to unknown and add a date_conflict risk flag instead of guessing, so the owner is asked to clarify.
 - role must describe the service itself. Typical AI coding subscriptions are developer_tool or agent.
 - adoptionStatus describes whether the owner uses the service: active for current use (including occasional use), considering for something merely followed or considered, unused for explicitly not used, paused for temporarily stopped. Do not confuse this with subscription status.
 - Output only a single JSON object, no prose and no code fences.`;

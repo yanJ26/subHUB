@@ -32,7 +32,7 @@ function commercialStatus(entitlements: Entitlement[]) {
 }
 
 function relevantDate(entitlements: Entitlement[]) {
-  const values = entitlements.map((entry) => entry.renewsAt || entry.expiresAt).filter((value): value is string => Boolean(value)).sort();
+  const values = entitlements.flatMap((entry) => [entry.renewsAt, entry.expiresAt]).filter((value): value is string => Boolean(value)).sort();
   return values.find((value) => (daysUntil(value) ?? -1) >= 0) || values.at(-1);
 }
 

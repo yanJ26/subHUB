@@ -1,5 +1,5 @@
 import { type ExchangeRateSnapshot, type WorkspaceState } from "@/lib/domain";
-import { daysUntil, lifecycleEvents, monthlyEquivalent, workspaceSummary } from "@/lib/metrics";
+import { daysUntil, lifecycleEvents, monthlyEquivalent, nextEntitlementDate, workspaceSummary } from "@/lib/metrics";
 
 type Props = {
   state: WorkspaceState;
@@ -62,18 +62,18 @@ export function DashboardView({ state, exchangeRates, onOpenItem, onShowServices
 
       <section className="panel subscription-preview">
         <header className="panel-header"><div><span className="kicker">SUBSCRIPTIONS</span><h2>订阅一览</h2></div><button className="text-button" onClick={onShowServices}>查看全部服务 →</button></header>
-        <div className="subscription-preview-head"><span>服务 / 方案</span><span>费用</span><span>下次续费</span><span>权益到期</span></div>
+        <div className="subscription-preview-head"><span>服务 / 方案</span><span>费用</span><span>到期 / 下次续费</span></div>
         <div className="subscription-preview-body">
           {subscriptions.map((entitlement) => {
             const item = itemMap.get(entitlement.itemId);
             const provider = item ? providerMap.get(item.providerId) : undefined;
             const equivalent = monthlyEquivalent(entitlement, exchangeRates.rates);
+            const nextDate = nextEntitlementDate(entitlement);
             return (
               <button className="subscription-preview-row" key={entitlement.id} onClick={() => item && onOpenItem(item.id)}>
                 <span className="product-cell"><i>{provider?.name.slice(0, 2) || "AI"}</i><span><strong>{item?.name || "未知服务"}</strong><small>{entitlement.label}</small></span></span>
                 <span><b>{entitlement.amount === null ? "待补充" : `${entitlement.currency} ${entitlement.amount}`}</b><small>{equivalent && equivalent > 0 ? `月均约 ¥${equivalent.toFixed(0)}` : "非固定月费"}</small></span>
-                <span><b>{entitlement.renewsAt || "未设置"}</b><small>{dateHint(entitlement.renewsAt)}</small></span>
-                <span><b>{entitlement.expiresAt || "未设置"}</b><small>{dateHint(entitlement.expiresAt)}</small></span>
+                <span><b>{nextDate || "未设置"}</b><small>{dateHint(nextDate)}</small></span>
               </button>
             );
           })}
