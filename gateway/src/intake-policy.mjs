@@ -29,14 +29,13 @@ function formatValue(field, value) {
   return named[value] || String(value ?? "未填写");
 }
 
-export function evaluateIntakeResult(parsed, workspace, config) {
-  if (parsed.riskFlags.length) return { status: "rejected", issues: parsed.riskFlags.map((flag) => issue("model_risk", flag)) };
-  if (parsed.intent !== "create_subscription") return { status: "needs_clarification", issues: [issue("unknown_intent", "目前只能用自然语言新增订阅记录")] };
-  if (parsed.confidence < config.confidenceThreshold) return { status: "needs_clarification", issues: [issue("low_confidence", `解析置信度 ${parsed.confidence.toFixed(2)} 低于阈值，请补充更明确的信息`)] };
+const UPDATABLE = new Set(["planName", "billingMode", "amount", "currency", "billingCycle", "renewsAt", "expiresAt", "autoRenew", "channel", "reminderDays", "tags", "notes"]);
+const ENTITLEMENT_FIELD = { planName: "label" };
 
-  const fields = parsed.subscription;
+function entitlementField(field) { return ENTITLEMENT_FIELD[field] || field; }
+
+function validateFields(fields, config) {
   const issues = [];
-  if (!fields.serviceName) issues.push(issue("missing_required", "请至少说明订阅或服务名称"));
   if (fields.amount !== undefined && (!Number.isFinite(fields.amount) || fields.amount < 0 || fields.amount > 1_000_000)) issues.push(issue("invalid_amount", "金额必须在 0 到 1,000,000 之间"));
   if (fields.role && !values.roles.has(fields.role)) issues.push(issue("invalid_role", "服务类型不受支持"));
   if (fields.billingMode && !values.billingModes.has(fields.billingMode)) issues.push(issue("invalid_billing_mode", "计费方式不受支持"));
@@ -51,14 +50,68 @@ export function evaluateIntakeResult(parsed, workspace, config) {
     const unknown = fields.tags.filter((tag) => !allowed.has(tag));
     if (unknown.length) issues.push(issue("unknown_tags", `标签尚未创建：${unknown.join("、")}`));
   }
-  if (fields.serviceName) {
-    const itemIds = new Set(workspace.catalog.filter((item) => item.name.trim().toLocaleLowerCase() === fields.serviceName.trim().toLocaleLowerCase()).map((item) => item.id));
-    const plan = (fields.planName || "订阅方案").trim().toLocaleLowerCase();
-    const duplicate = workspace.entitlements.find((entry) => itemIds.has(entry.itemId) && entry.label.trim().toLocaleLowerCase() === plan && entry.status !== "cancelled");
-    if (duplicate) issues.push(issue("possible_duplicate", `已存在同名方案：${fields.serviceName} / ${fields.planName || "订阅方案"}`));
-  }
-  if (issues.length) return { status: "needs_clarification", issues };
+  return issues;
+}
+
+function createDraft(fields) {
   const lines = [`新增订阅：${fields.serviceName}`];
   for (const [field, value] of Object.entries(fields)) lines.push(`${labels[field] || field}：${formatValue(field, value)}`);
-  return { status: "draft_ready", payload: fields, summary: lines.join("\n") };
+  return { status: "draft_ready", payload: { op: "create", ...fields }, summary: lines.join("\n") };
+}
+
+function updateDraft(workspace, item, entitlement, changes) {
+  const lines = [`修改订阅：${item.name}（${entitlement.label}）`];
+  for (const [field, value] of Object.entries(changes)) {
+    const before = entitlement[entitlementField(field)];
+    lines.push(`${labels[field] || field}：${formatValue(field, before)} → ${formatValue(field, value)}`);
+  }
+  return {
+    status: "draft_ready",
+    payload: { op: "update", entitlementId: entitlement.id, itemId: item.id, serviceName: item.name, planLabel: entitlement.label, changes },
+    summary: lines.join("\n"),
+  };
+}
+
+export function evaluateIntakeResult(parsed, workspace, config) {
+  if (parsed.riskFlags.length) return { status: "rejected", issues: parsed.riskFlags.map((flag) => issue("model_risk", flag)) };
+  if (parsed.intent === "unknown") return { status: "needs_clarification", issues: [issue("unknown_intent", "目前只能用自然语言新增订阅或修改已有订阅，请说明是新增还是修改，以及服务名称。")] };
+  if (parsed.confidence < config.confidenceThreshold) return { status: "needs_clarification", issues: [issue("low_confidence", `解析置信度 ${parsed.confidence.toFixed(2)} 低于阈值，请补充更明确的信息`)] };
+
+  if (parsed.intent === "create_subscription") {
+    const fields = parsed.subscription;
+    const issues = [];
+    if (!fields.serviceName) issues.push(issue("missing_required", "请至少说明订阅或服务名称"));
+    issues.push(...validateFields(fields, config));
+    if (fields.serviceName) {
+      const itemIds = new Set(workspace.catalog.filter((item) => item.name.trim().toLocaleLowerCase() === fields.serviceName.trim().toLocaleLowerCase()).map((item) => item.id));
+      const plan = (fields.planName || "订阅方案").trim().toLocaleLowerCase();
+      const duplicate = workspace.entitlements.find((entry) => itemIds.has(entry.itemId) && entry.label.trim().toLocaleLowerCase() === plan && entry.status !== "cancelled");
+      if (duplicate) issues.push(issue("possible_duplicate", `已存在同名方案：${fields.serviceName} / ${fields.planName || "订阅方案"}；如需修改请选择“修改已有订阅”。`));
+    }
+    if (issues.length) return { status: "needs_clarification", issues };
+    return createDraft(fields);
+  }
+
+  // update_subscription
+  const target = parsed.target;
+  if (!target) return { status: "needs_clarification", issues: [issue("missing_target", "请说明要修改哪个已有订阅的服务名称")] };
+  const changes = parsed.changes || {};
+  if (!Object.keys(changes).length) return { status: "needs_clarification", issues: [issue("no_changes", "没有识别到需要修改的内容，请说明要改哪个字段。")] };
+  const lowered = target.trim().toLocaleLowerCase();
+  const matchedItems = workspace.catalog.filter((item) => item.name.trim().toLocaleLowerCase() === lowered);
+  if (!matchedItems.length) return { status: "needs_clarification", issues: [issue("target_not_found", `没有找到名为“${target}”的订阅，请确认名称或改用新增。`)] };
+  const candidates = [];
+  for (const item of matchedItems) {
+    for (const entitlement of workspace.entitlements.filter((entry) => entry.itemId === item.id && entry.status !== "cancelled")) candidates.push({ item, entitlement });
+  }
+  if (!candidates.length) return { status: "needs_clarification", issues: [issue("target_not_found", `“${target}”没有可修改的有效订阅权益，请改用新增。`)] };
+  if (candidates.length > 1) return { status: "needs_clarification", issues: [issue("ambiguous_target", `“${target}”匹配到多个订阅方案，请在网页列表中手动修改。`)] };
+
+  const { item, entitlement } = candidates[0];
+  const issues = [];
+  const unsupported = Object.keys(changes).filter((field) => !UPDATABLE.has(field));
+  if (unsupported.length) issues.push(issue("unsupported_change", `以下字段暂不支持通过录入修改，请在网页中编辑：${unsupported.map((field) => labels[field] || field).join("、")}`));
+  issues.push(...validateFields(changes, config));
+  if (issues.length) return { status: "needs_clarification", issues };
+  return updateDraft(workspace, item, entitlement, changes);
 }

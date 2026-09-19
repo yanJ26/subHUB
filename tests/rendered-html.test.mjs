@@ -41,7 +41,7 @@ test("business models exclude raw credentials and include assets", async () => {
   assert.match(editor, /添加数字资产/);
   assert.match(app, /quickSubscription/);
   assert.match(app, /一句话录入/);
-  assert.match(smartIntake, /内容可以随意组织，不必按表单顺序/);
+  assert.match(smartIntake, /不必按表单顺序/);
   assert.match(smartIntake, /生成草稿/);
   assert.match(smartIntake, /确认写入/);
   assert.match(app, /type="password"/);

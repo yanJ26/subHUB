@@ -30,20 +30,26 @@ const subscriptionProperties = {
   invoiceUrl: nullableString,
 };
 
+export const ALLOWED_INTENTS = ["create_subscription", "update_subscription", "unknown"];
+
+const subscriptionObject = {
+  type: "object", additionalProperties: false,
+  properties: subscriptionProperties, required: INTAKE_FIELDS,
+};
+
 export const INTAKE_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
-    intent: { type: "string", enum: ["create_subscription", "unknown"] },
-    subscription: {
-      type: "object", additionalProperties: false,
-      properties: subscriptionProperties, required: INTAKE_FIELDS,
-    },
+    intent: { type: "string", enum: ALLOWED_INTENTS },
+    target: nullableString,
+    subscription: subscriptionObject,
+    changes: subscriptionObject,
     confidence: { type: "number", minimum: 0, maximum: 1 },
     missingFields: { type: "array", items: { type: "string" } },
     riskFlags: { type: "array", items: { type: "string" } },
   },
-  required: ["intent", "subscription", "confidence", "missingFields", "riskFlags"],
+  required: ["intent", "target", "subscription", "changes", "confidence", "missingFields", "riskFlags"],
 };
 
 function cleanString(value, maxLength) {
@@ -52,24 +58,30 @@ function cleanString(value, maxLength) {
   return cleaned ? cleaned.slice(0, maxLength) : null;
 }
 
-export function normalizeIntakeResult(input) {
-  if (!input || typeof input !== "object" || !["create_subscription", "unknown"].includes(input.intent)) {
-    throw new Error("model_output_invalid");
-  }
-  const subscription = {};
+function normalizeSubscriptionFields(source) {
+  const result = {};
   for (const field of INTAKE_FIELDS) {
-    const value = input.subscription?.[field];
+    const value = source?.[field];
     if (value === null || value === undefined) continue;
-    if (["serviceName", "providerName", "planName", "channel", "invoiceNumber"].includes(field)) subscription[field] = cleanString(value, 200);
-    else if (["website", "invoiceUrl"].includes(field)) subscription[field] = cleanString(value, 1000);
-    else if (field === "notes") subscription[field] = cleanString(value, 2000);
-    else if (["renewsAt", "expiresAt"].includes(field)) subscription[field] = cleanString(value, 10);
-    else if (field === "tags" && Array.isArray(value)) subscription.tags = [...new Set(value.map((tag) => cleanString(tag, 32)).filter(Boolean))].slice(0, 12);
-    else subscription[field] = value;
+    if (["serviceName", "providerName", "planName", "channel", "invoiceNumber"].includes(field)) result[field] = cleanString(value, 200);
+    else if (["website", "invoiceUrl"].includes(field)) result[field] = cleanString(value, 1000);
+    else if (field === "notes") result[field] = cleanString(value, 2000);
+    else if (["renewsAt", "expiresAt"].includes(field)) result[field] = cleanString(value, 10);
+    else if (field === "tags" && Array.isArray(value)) result.tags = [...new Set(value.map((tag) => cleanString(tag, 32)).filter(Boolean))].slice(0, 12);
+    else result[field] = value;
+  }
+  return Object.fromEntries(Object.entries(result).filter(([, value]) => value !== null));
+}
+
+export function normalizeIntakeResult(input) {
+  if (!input || typeof input !== "object" || !ALLOWED_INTENTS.includes(input.intent)) {
+    throw new Error("model_output_invalid");
   }
   return {
     intent: input.intent,
-    subscription: Object.fromEntries(Object.entries(subscription).filter(([, value]) => value !== null)),
+    target: cleanString(input.target, 200),
+    subscription: normalizeSubscriptionFields(input.subscription),
+    changes: normalizeSubscriptionFields(input.changes),
     confidence: Math.max(0, Math.min(1, Number(input.confidence) || 0)),
     missingFields: Array.isArray(input.missingFields) ? input.missingFields.map((field) => cleanString(field, 80)).filter(Boolean) : [],
     riskFlags: Array.isArray(input.riskFlags) ? input.riskFlags.map((flag) => cleanString(flag, 120)).filter(Boolean) : [],

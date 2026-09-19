@@ -163,6 +163,32 @@ test("natural-language intake previews and atomically commits a complete subscri
   }, { config: { modelApiKey: "test-key", model: "test-model" }, parseIntake: async () => parsed });
 });
 
+test("natural-language intake updates an existing subscription in place", async () => {
+  const seed = {
+    providers: [{ id: "p1", name: "OpenAI" }],
+    catalog: [{ id: "i1", providerId: "p1", name: "Codex", description: "", roles: ["agent"], models: [], adoptionStatus: "active" }],
+    entitlements: [{ id: "e1", itemId: "i1", label: "Plus", billingMode: "subscription", amount: 20, currency: "USD", billingCycle: "monthly", status: "active", expiresAt: "2026-09-08", autoRenew: true, reminderDays: 7, tags: [] }],
+    tagDefinitions: [], invoices: [], assets: [], deployments: [], accessSurfaces: [], usageLinks: [], quotaPolicies: [], snapshots: [], evaluations: [], workRecords: [], legacyRefs: [],
+  };
+  const updateParsed = { intent: "update_subscription", target: "Codex", subscription: {}, changes: { expiresAt: "2026-10-17" }, confidence: 0.95, missingFields: [], riskFlags: [] };
+  await withGateway(async (base) => {
+    await fetch(`${base}/v1/web/state`, { method: "PUT", headers: ownerHeaders, body: JSON.stringify({ workspace: seed, expectedRevision: 0 }) });
+    const previewResponse = await fetch(`${base}/v1/web/intake`, { method: "POST", headers: ownerHeaders, body: JSON.stringify({ message: "Codex 的到期时间改为 10 月 17 日" }) });
+    assert.equal(previewResponse.status, 201);
+    const preview = await previewResponse.json();
+    assert.equal(preview.status, "pending_confirmation");
+    assert.match(preview.draft.summary, /修改订阅：Codex/);
+    const commitResponse = await fetch(`${base}/v1/web/intake/drafts/${preview.draft.id}/commit`, { method: "POST", headers: ownerHeaders, body: "{}" });
+    assert.equal(commitResponse.status, 200);
+    const committed = await commitResponse.json();
+    assert.equal(committed.op, "update");
+    assert.equal(committed.workspace.entitlements.length, 1);
+    assert.equal(committed.workspace.entitlements[0].id, "e1");
+    assert.equal(committed.workspace.entitlements[0].expiresAt, "2026-10-17");
+    assert.equal(committed.workspace.entitlements[0].label, "Plus");
+  }, { config: { modelApiKey: "test-key", model: "test-model" }, parseIntake: async () => updateParsed });
+});
+
 test("natural-language intake rejects likely secrets before the model is called", async () => {
   let called = false;
   await withGateway(async (base) => {

@@ -4,6 +4,28 @@ function id(prefix) { return `${prefix}_${randomUUID()}`; }
 function text(value) { return typeof value === "string" ? value.trim() : ""; }
 function sameText(left, right) { return text(left).toLocaleLowerCase() === text(right).toLocaleLowerCase(); }
 
+export function applyIntakeSubscriptionUpdate(state, draft) {
+  const result = structuredClone(state);
+  const entitlement = result.entitlements.find((entry) => entry.id === draft.entitlementId);
+  if (!entitlement) throw new Error("intake_target_missing");
+  const changes = draft.changes || {};
+  const has = (field) => Object.prototype.hasOwnProperty.call(changes, field);
+  if (has("planName")) entitlement.label = text(changes.planName) || entitlement.label;
+  if (has("billingMode")) entitlement.billingMode = changes.billingMode;
+  if (has("amount") && Number.isFinite(changes.amount)) entitlement.amount = changes.amount;
+  if (has("currency")) entitlement.currency = changes.currency;
+  if (has("billingCycle")) entitlement.billingCycle = changes.billingCycle;
+  if (has("renewsAt")) entitlement.renewsAt = text(changes.renewsAt);
+  if (has("expiresAt")) entitlement.expiresAt = text(changes.expiresAt);
+  if (has("autoRenew")) entitlement.autoRenew = Boolean(changes.autoRenew);
+  if (has("channel")) entitlement.channel = text(changes.channel);
+  if (has("reminderDays") && Number.isInteger(changes.reminderDays)) entitlement.reminderDays = changes.reminderDays;
+  if (has("tags")) entitlement.tags = [...new Set((Array.isArray(changes.tags) ? changes.tags : []).map(text).filter(Boolean))];
+  if (has("notes")) entitlement.notes = text(changes.notes);
+  entitlement.status = entitlement.status === "expired" || entitlement.status === "cancelled" ? entitlement.status : "active";
+  return result;
+}
+
 export function addIntakeSubscription(state, fields) {
   const result = structuredClone(state);
   const serviceName = text(fields.serviceName);
