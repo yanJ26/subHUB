@@ -24,12 +24,12 @@ test("intake normalization drops unknown fields and preserves explicit subscript
 test("intake normalization parses update target and changes", () => {
   const parsed = normalizeIntakeResult({
     intent: "update_subscription", target: " Codex ", subscription: {},
-    changes: { expiresAt: "2026-10-17", amount: null, tags: ["主力", "主力"], bogus: "x" },
+    changes: { renewsAt: "2026-10-17", amount: null, tags: ["主力", "主力"], bogus: "x" },
     confidence: 0.95, missingFields: [], riskFlags: [],
   });
   assert.equal(parsed.intent, "update_subscription");
   assert.equal(parsed.target, "Codex");
-  assert.deepEqual(parsed.changes, { expiresAt: "2026-10-17", tags: ["主力"] });
+  assert.deepEqual(parsed.changes, { renewsAt: "2026-10-17", tags: ["主力"] });
   assert.deepEqual(parsed.subscription, {});
 });
 
@@ -47,7 +47,7 @@ function codexWorkspace(extra = {}) {
   return {
     providers: [{ id: "p1", name: "OpenAI" }],
     catalog: [{ id: "i1", providerId: "p1", name: "Codex", description: "", roles: ["agent"], models: [], adoptionStatus: "active" }],
-    entitlements: [{ id: "e1", itemId: "i1", label: "Plus", billingMode: "subscription", amount: 20, currency: "USD", billingCycle: "monthly", status: "active", expiresAt: "2026-09-08", autoRenew: true, reminderDays: 7, tags: ["主力"], ...extra }],
+    entitlements: [{ id: "e1", itemId: "i1", label: "Plus", billingMode: "subscription", amount: 20, currency: "USD", billingCycle: "monthly", status: "active", renewsAt: "2026-09-08", autoRenew: true, reminderDays: 7, tags: ["主力"], ...extra }],
     tagDefinitions: [{ id: "t1", name: "主力" }],
   };
 }
@@ -68,12 +68,12 @@ test("intake policy creates a service-only draft and blocks fake or duplicate su
 });
 
 test("intake policy builds a before→after update draft for a unique target", () => {
-  const result = evaluateIntakeResult({ ...updateBase, intent: "update_subscription", target: "Codex", changes: { expiresAt: "2026-10-17" } }, codexWorkspace(), config);
+  const result = evaluateIntakeResult({ ...updateBase, intent: "update_subscription", target: "Codex", changes: { renewsAt: "2026-10-17" } }, codexWorkspace(), config);
   assert.equal(result.status, "draft_ready");
   assert.equal(result.payload.op, "update");
   assert.equal(result.payload.entitlementId, "e1");
-  assert.deepEqual(result.payload.changes, { expiresAt: "2026-10-17" });
-  assert.match(result.summary, /权益到期：2026-09-08 → 2026-10-17/);
+  assert.deepEqual(result.payload.changes, { renewsAt: "2026-10-17" });
+  assert.match(result.summary, /到期 \/ 下次续费：2026-09-08 → 2026-10-17/);
 });
 
 test("intake update reports missing, unknown, ambiguous target and empty changes", () => {
@@ -99,7 +99,7 @@ test("intake update rejects unsupported fields and invalid dates", () => {
 test("intake policy fails closed on low confidence, fake dates, and unknown tags", () => {
   const base = { intent: "create_subscription", subscription: { serviceName: "Codex" }, confidence: 0.5, missingFields: [], riskFlags: [] };
   assert.equal(evaluateIntakeResult(base, emptyWorkspace, config).status, "needs_clarification");
-  const invalid = evaluateIntakeResult({ ...base, confidence: 0.99, subscription: { serviceName: "Codex", expiresAt: "2026-02-30", tags: ["模型自创"] } }, emptyWorkspace, config);
+  const invalid = evaluateIntakeResult({ ...base, confidence: 0.99, subscription: { serviceName: "Codex", renewsAt: "2026-02-30", tags: ["模型自创"] } }, emptyWorkspace, config);
   assert.equal(invalid.status, "needs_clarification");
   assert.equal(invalid.issues.some((entry) => entry.code === "invalid_date"), true);
   assert.equal(invalid.issues.some((entry) => entry.code === "unknown_tags"), true);

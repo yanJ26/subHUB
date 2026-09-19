@@ -136,13 +136,13 @@ test("natural-language intake previews and atomically commits a complete subscri
     subscription: {
       serviceName: "Qoder", providerName: "Alibaba", role: "developer_tool", planName: "Pro",
       billingMode: "subscription", amount: 20, currency: "USD", billingCycle: "monthly",
-      renewsAt: "2026-10-18", expiresAt: "2026-11-18", autoRenew: true, reminderDays: 7,
+      renewsAt: "2026-10-18", autoRenew: true, reminderDays: 7,
       channel: "官网信用卡", tags: [], invoiceStatus: "none",
     },
     confidence: 0.98, missingFields: [], riskFlags: [],
   };
   await withGateway(async (base, gateway) => {
-    const message = "新增 Qoder Pro，每月 20 美元，10 月 18 日续费，11 月 18 日到期";
+    const message = "新增 Qoder Pro，每月 20 美元，10 月 18 日续费";
     const previewResponse = await fetch(`${base}/v1/web/intake`, { method: "POST", headers: ownerHeaders, body: JSON.stringify({ message }) });
     assert.equal(previewResponse.status, 201);
     const preview = await previewResponse.json();
@@ -157,7 +157,7 @@ test("natural-language intake previews and atomically commits a complete subscri
     const committed = await commitResponse.json();
     assert.equal(committed.workspace.catalog[0].name, "Qoder");
     assert.equal(committed.workspace.entitlements[0].renewsAt, "2026-10-18");
-    assert.equal(committed.workspace.entitlements[0].expiresAt, "2026-11-18");
+    assert.equal(committed.workspace.entitlements[0].expiresAt, "2026-10-18");
     assert.equal(gateway.db.getIntakeDraft(preview.draft.id).status, "committed");
     assert.equal(gateway.db.getAuditLogs(10)[0].actor, "intake:owner");
   }, { config: { modelApiKey: "test-key", model: "test-model" }, parseIntake: async () => parsed });
@@ -190,10 +190,10 @@ test("natural-language intake updates an existing subscription in place", async 
   const seed = {
     providers: [{ id: "p1", name: "OpenAI" }],
     catalog: [{ id: "i1", providerId: "p1", name: "Codex", description: "", roles: ["agent"], models: [], adoptionStatus: "active" }],
-    entitlements: [{ id: "e1", itemId: "i1", label: "Plus", billingMode: "subscription", amount: 20, currency: "USD", billingCycle: "monthly", status: "active", expiresAt: "2026-09-08", autoRenew: true, reminderDays: 7, tags: [] }],
+    entitlements: [{ id: "e1", itemId: "i1", label: "Plus", billingMode: "subscription", amount: 20, currency: "USD", billingCycle: "monthly", status: "active", renewsAt: "2026-09-08", expiresAt: "2026-09-08", autoRenew: true, reminderDays: 7, tags: [] }],
     tagDefinitions: [], invoices: [], assets: [], deployments: [], accessSurfaces: [], usageLinks: [], quotaPolicies: [], snapshots: [], evaluations: [], workRecords: [], legacyRefs: [],
   };
-  const updateParsed = { intent: "update_subscription", target: "Codex", subscription: {}, changes: { expiresAt: "2026-10-17" }, confidence: 0.95, missingFields: [], riskFlags: [] };
+  const updateParsed = { intent: "update_subscription", target: "Codex", subscription: {}, changes: { renewsAt: "2026-10-17" }, confidence: 0.95, missingFields: [], riskFlags: [] };
   await withGateway(async (base) => {
     await fetch(`${base}/v1/web/state`, { method: "PUT", headers: ownerHeaders, body: JSON.stringify({ workspace: seed, expectedRevision: 0 }) });
     const previewResponse = await fetch(`${base}/v1/web/intake`, { method: "POST", headers: ownerHeaders, body: JSON.stringify({ message: "Codex 的到期时间改为 10 月 17 日" }) });

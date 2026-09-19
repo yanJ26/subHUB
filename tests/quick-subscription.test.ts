@@ -12,7 +12,7 @@ const emptyWorkspace: WorkspaceState = {
 const draft: QuickSubscriptionDraft = {
   serviceName: "Codex", providerName: "OpenAI", role: "developer_tool", planName: "Pro",
   billingMode: "subscription", amount: 20, currency: "USD", billingCycle: "monthly",
-  renewsAt: "2026-10-01", expiresAt: "2026-10-01", autoRenew: true, reminderDays: 7,
+  renewsAt: "2026-10-01", autoRenew: true, reminderDays: 7,
   channel: "官网", tags: ["主力"], invoiceStatus: "pending",
 };
 

@@ -173,7 +173,7 @@ button { color: inherit; }
 .catalog-unused { background: #fafbfa; }
 
 .service-table { overflow: hidden; }
-.service-head, .service-row { display: grid; grid-template-columns: minmax(210px, 1.35fr) minmax(130px, .8fr) 110px minmax(150px, .9fr) 125px 125px; align-items: center; column-gap: 12px; }
+.service-head, .service-row { display: grid; grid-template-columns: minmax(210px, 1.35fr) minmax(130px, .8fr) 110px minmax(150px, .9fr) 160px; align-items: center; column-gap: 12px; }
 .service-head { min-height: 44px; padding: 0 18px; color: #849089; background: #f7f9f7; font-size: 9px; }
 .service-row { min-height: 84px; padding: 12px 18px; border-top: 1px solid #e9eeea; background: white; }
 .service-row:hover { background: #fafbfa; }

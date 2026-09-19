@@ -90,7 +90,6 @@ function QuickSubscriptionForm({ state, busy, error, onClose, onSubmit }: FormPr
   const [currency, setCurrency] = useState<Currency>("CNY");
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly" | "none">("monthly");
   const [renewsAt, setRenewsAt] = useState("");
-  const [expiresAt, setExpiresAt] = useState("");
   const [autoRenew, setAutoRenew] = useState(false);
   const [reminderDays, setReminderDays] = useState("7");
   const [channel, setChannel] = useState("");
@@ -112,7 +111,7 @@ function QuickSubscriptionForm({ state, busy, error, onClose, onSubmit }: FormPr
     const result = buildQuickSubscriptionWorkspace(state, {
       serviceName, providerName, role, website, planName, billingMode,
       amount: amount === "" ? null : Number(amount), currency, billingCycle,
-      renewsAt, expiresAt, autoRenew, reminderDays: Number(reminderDays || 0),
+      renewsAt, autoRenew, reminderDays: Number(reminderDays || 0),
       channel, tags: splitList(tags), notes, invoiceStatus, invoiceNumber, invoiceUrl,
     });
     void onSubmit(result.workspace, `Quick-added subscription ${serviceName.trim()} / ${planName.trim() || "订阅方案"}`);
@@ -123,7 +122,7 @@ function QuickSubscriptionForm({ state, busy, error, onClose, onSubmit }: FormPr
     <div className="form-pair"><label><span>类型</span><select value={role} onChange={(event) => setRole(event.target.value as ItemRole)}>{quickRoleOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>方案名称</span><input value={planName} onChange={(event) => setPlanName(event.target.value)} placeholder="例如：Pro / Team · 1 席位" /></label></div>
     <div className="form-pair"><label><span>计费方式</span><select value={billingMode} onChange={(event) => setBillingMode(event.target.value as BillingMode)}><option value="subscription">订阅</option><option value="pay_as_you_go">按量计费</option><option value="token_pack">Token 包</option><option value="trial">试用</option><option value="free">免费</option><option value="bundled">套餐内含</option><option value="one_time">一次性购买</option><option value="self_hosted">自托管</option><option value="hybrid">混合费用</option></select></label><label><span>金额</span><span className="compound-field"><select value={currency} onChange={(event) => setCurrency(event.target.value as Currency)}><option>CNY</option><option>USD</option><option>EUR</option><option>HKD</option><option>GBP</option><option>JPY</option></select><input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="未知可留空" /></span></label></div>
     <div className="form-pair"><label><span>计费周期</span><select value={billingCycle} onChange={(event) => setBillingCycle(event.target.value as "monthly" | "yearly" | "none")}><option value="monthly">按月</option><option value="yearly">按年</option><option value="none">无固定周期</option></select></label><label><span>提前提醒</span><select value={reminderDays} onChange={(event) => setReminderDays(event.target.value)}><option value="3">3 天</option><option value="7">7 天</option><option value="14">14 天</option><option value="30">30 天</option><option value="60">60 天</option></select></label></div>
-    <div className="form-pair"><label><span>下次续费</span><input type="date" value={renewsAt} onChange={(event) => setRenewsAt(event.target.value)} /></label><label><span>权益到期</span><input type="date" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label></div>
+    <label><span>到期 / 下次续费</span><input type="date" value={renewsAt} onChange={(event) => setRenewsAt(event.target.value)} /></label>
     <label className="editor-checkbox"><input type="checkbox" checked={autoRenew} onChange={(event) => setAutoRenew(event.target.checked)} /><span>自动续费（仅记录状态，不会执行付款）</span></label>
     <details className="quick-optional"><summary>更多选填信息</summary><div className="quick-optional-fields">
       <label><span>购买或支付渠道</span><input value={channel} onChange={(event) => setChannel(event.target.value)} placeholder="例如：官网 · Visa 尾号 2048（不要填写完整卡号）" /></label>
@@ -189,8 +188,7 @@ function EntitlementForm({ editId, state, contextItemId, busy, error, onClose, o
   const [currency, setCurrency] = useState<Currency>(existing?.currency || "CNY");
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly" | "none">(existing?.billingCycle || "monthly");
   const [status, setStatus] = useState<EntitlementStatus>(existing?.status || "active");
-  const [renewsAt, setRenewsAt] = useState(existing?.renewsAt || "");
-  const [expiresAt, setExpiresAt] = useState(existing?.expiresAt || "");
+  const [renewsAt, setRenewsAt] = useState(existing?.renewsAt || existing?.expiresAt || "");
   const [autoRenew, setAutoRenew] = useState(existing?.autoRenew || false);
   const [channel, setChannel] = useState(existing?.channel || "");
   const [reminderDays, setReminderDays] = useState(String(existing?.reminderDays ?? 7));
@@ -207,7 +205,7 @@ function EntitlementForm({ editId, state, contextItemId, busy, error, onClose, o
       ...(existing || {}),
       id: entitlementId, itemId, label: label.trim(), billingMode,
       amount: amount === "" ? null : Number(amount), currency, billingCycle, status,
-      renewsAt: renewsAt || undefined, expiresAt: expiresAt || undefined, autoRenew,
+      renewsAt: renewsAt || undefined, expiresAt: renewsAt || undefined, autoRenew,
       channel: channel.trim() || undefined, reminderDays: Number(reminderDays || 0),
       tags: splitList(tags), notes: notes.trim() || undefined,
     };
@@ -226,12 +224,12 @@ function EntitlementForm({ editId, state, contextItemId, busy, error, onClose, o
     void onSubmit({ ...state, entitlements: state.entitlements.map((entry) => entry.id === existing.id ? { ...entry, status: "cancelled" as const, autoRenew: false } : entry) }, `Archived entitlement ${existing.label}`);
   }
 
-  return <><Header kicker="SUBSCRIPTION" title={existing ? "编辑订阅" : "添加订阅"} onClose={onClose} /><p>记录方案、费用、下次续费和实际到期日期。</p><form onSubmit={save}>
+  return <><Header kicker="SUBSCRIPTION" title={existing ? "编辑订阅" : "添加订阅"} onClose={onClose} /><p>记录方案、费用、以及“到期 / 下次续费”日期。</p><form onSubmit={save}>
     <label><span>产品或服务 *</span><select required value={itemId} onChange={(event) => setItemId(event.target.value)}>{state.catalog.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     <div className="form-pair"><label><span>方案名称 *</span><input required value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Plus / Pro / API PAYG" /></label><label><span>计费方式</span><select value={billingMode} onChange={(event) => setBillingMode(event.target.value as BillingMode)}><option value="subscription">订阅</option><option value="pay_as_you_go">按量</option><option value="token_pack">Token 包</option><option value="trial">试用</option><option value="free">免费</option><option value="self_hosted">自托管</option><option value="hybrid">混合</option><option value="bundled">套餐内含</option><option value="one_time">一次性购买</option></select></label></div>
     <div className="form-pair"><label><span>金额</span><span className="compound-field"><select value={currency} onChange={(event) => setCurrency(event.target.value as Currency)}><option>CNY</option><option>USD</option><option>EUR</option><option>HKD</option><option>GBP</option><option>JPY</option></select><input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></span></label><label><span>周期</span><select value={billingCycle} onChange={(event) => setBillingCycle(event.target.value as "monthly" | "yearly" | "none")}><option value="monthly">月付</option><option value="yearly">年付</option><option value="none">无固定周期</option></select></label></div>
     <label><span>订阅状态</span><select value={status} onChange={(event) => setStatus(event.target.value as EntitlementStatus)}><option value="active">有效</option><option value="trial">试用</option><option value="paused">暂停</option><option value="expired">到期</option><option value="cancelled">取消 / 归档</option></select></label>
-    <div className="form-pair"><label><span>下次续费</span><input type="date" value={renewsAt} onChange={(event) => setRenewsAt(event.target.value)} /></label><label><span>权益到期</span><input type="date" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label></div>
+    <label><span>到期 / 下次续费</span><input type="date" value={renewsAt} onChange={(event) => setRenewsAt(event.target.value)} /></label>
     <div className="form-pair"><label><span>购买渠道</span><input value={channel} onChange={(event) => setChannel(event.target.value)} /></label><label><span>提前提醒天数</span><input type="number" min="0" max="365" value={reminderDays} onChange={(event) => setReminderDays(event.target.value)} /></label></div>
     <label className="editor-checkbox"><input type="checkbox" checked={autoRenew} onChange={(event) => setAutoRenew(event.target.checked)} /><span>自动续费</span></label>
     <label><span>标签（逗号分隔）</span><input value={tags} onChange={(event) => setTags(event.target.value)} /></label>

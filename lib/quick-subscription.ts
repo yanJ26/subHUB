@@ -13,7 +13,6 @@ export type QuickSubscriptionDraft = {
   currency: Currency;
   billingCycle: "monthly" | "yearly" | "none";
   renewsAt?: string;
-  expiresAt?: string;
   autoRenew: boolean;
   reminderDays: number;
   channel?: string;
@@ -76,8 +75,7 @@ export function buildQuickSubscriptionWorkspace(
     billingMode: draft.billingMode, amount: draft.amount, currency: draft.currency,
     billingCycle: draft.billingCycle,
     status: draft.billingMode === "trial" ? "trial" as const : "active" as const,
-    ...(optional(draft.renewsAt) ? { renewsAt: optional(draft.renewsAt) } : {}),
-    ...(optional(draft.expiresAt) ? { expiresAt: optional(draft.expiresAt) } : {}),
+    ...(optional(draft.renewsAt) ? { renewsAt: optional(draft.renewsAt), expiresAt: optional(draft.renewsAt) } : {}),
     autoRenew: draft.autoRenew,
     ...(optional(draft.channel) ? { channel: optional(draft.channel) } : {}),
     reminderDays: draft.reminderDays,

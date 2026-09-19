@@ -31,8 +31,8 @@ function commercialStatus(entitlements: Entitlement[]) {
   return { key: "subscribed", label: "已有记录" };
 }
 
-function relevantDate(entitlements: Entitlement[], field: "renewsAt" | "expiresAt") {
-  const values = entitlements.map((entry) => entry[field]).filter((value): value is string => Boolean(value)).sort();
+function relevantDate(entitlements: Entitlement[]) {
+  const values = entitlements.map((entry) => entry.renewsAt || entry.expiresAt).filter((value): value is string => Boolean(value)).sort();
   return values.find((value) => (daysUntil(value) ?? -1) >= 0) || values.at(-1);
 }
 
@@ -88,21 +88,19 @@ export function ServicesView({ state, search, onOpenItem, onAddService, onAddSub
       <button className={filter === "unsubscribed" ? "active" : ""} onClick={() => setFilter("unsubscribed")}>无有效订阅 <b>{state.catalog.length - subscribedCount}</b></button>
     </nav>
     <section className="panel service-table">
-      <div className="service-head"><span>服务 / 厂商</span><span>服务类型</span><span>使用状态</span><span>订阅状态</span><span>下次续费</span><span>权益到期</span></div>
+      <div className="service-head"><span>服务 / 厂商</span><span>服务类型</span><span>使用状态</span><span>订阅状态</span><span>到期 / 下次续费</span></div>
       {entries.map((item) => {
         const provider = providerMap.get(item.providerId);
         const entitlements = entitlementsByItem.get(item.id) || [];
         const current = currentEntitlements(entitlements);
         const commercial = commercialStatus(entitlements);
-        const renewal = dateStatus(relevantDate(current, "renewsAt"));
-        const expiry = dateStatus(relevantDate(current, "expiresAt"));
+        const nextDate = dateStatus(relevantDate(current));
         return <article className="service-row" key={item.id}>
           <button className="product-cell record-link" onClick={() => onOpenItem(item.id)}><i>{provider?.name.slice(0, 2) || "AI"}</i><span><strong>{item.name}</strong><small>{provider?.name || "服务商待补充"}</small></span></button>
           <span className="role-cell">{item.roles.slice(0, 2).map((role) => <em key={role}>{roleLabels[role]}</em>)}</span>
           <span><AdoptionBadge status={item.adoptionStatus} /><button className="record-edit" onClick={() => onEditItem(item.id)}>编辑服务</button></span>
           <span><em className={`commercial-status commercial-${commercial.key}`}>{commercial.label}</em><small>{entitlements.map((entry) => entry.label).join("、") || "只记录服务，不生成费用"}</small></span>
-          <span className={renewal.warning ? "date-warning" : ""}><b>{renewal.value}</b><small>{renewal.hint}</small></span>
-          <span className={expiry.warning ? "date-warning" : ""}><b>{expiry.value}</b><small>{expiry.hint}</small></span>
+          <span className={nextDate.warning ? "date-warning" : ""}><b>{nextDate.value}</b><small>{nextDate.hint}</small></span>
         </article>;
       })}
       {!entries.length && <div className="empty-block">{query ? `没有找到与“${search.trim()}”相关的服务。` : "这个分类里还没有服务。"}</div>}

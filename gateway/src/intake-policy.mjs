@@ -9,7 +9,7 @@ const values = {
 
 const labels = {
   serviceName: "服务", providerName: "服务商", role: "类型", adoptionStatus: "使用状态", planName: "方案", billingMode: "计费方式",
-  amount: "金额", currency: "币种", billingCycle: "周期", renewsAt: "下次续费", expiresAt: "权益到期",
+  amount: "金额", currency: "币种", billingCycle: "周期", renewsAt: "到期 / 下次续费",
   autoRenew: "自动续费", reminderDays: "提前提醒", channel: "购买渠道", tags: "标签", invoiceStatus: "发票状态",
   invoiceNumber: "发票号码", invoiceUrl: "发票链接", website: "官网", notes: "备注",
 };
@@ -30,7 +30,7 @@ function formatValue(field, value) {
   return named[value] || String(value ?? "未填写");
 }
 
-const UPDATABLE = new Set(["planName", "billingMode", "amount", "currency", "billingCycle", "renewsAt", "expiresAt", "autoRenew", "channel", "reminderDays", "tags", "notes"]);
+const UPDATABLE = new Set(["planName", "billingMode", "amount", "currency", "billingCycle", "renewsAt", "autoRenew", "channel", "reminderDays", "tags", "notes"]);
 const SERVICE_FIELDS = new Set(["serviceName", "providerName", "role", "adoptionStatus", "website", "notes"]);
 const ENTITLEMENT_FIELD = { planName: "label" };
 
@@ -45,7 +45,7 @@ function validateFields(fields, config) {
   if (fields.currency && !values.currencies.has(fields.currency)) issues.push(issue("invalid_currency", "币种不受支持"));
   if (fields.billingCycle && !values.billingCycles.has(fields.billingCycle)) issues.push(issue("invalid_billing_cycle", "计费周期不受支持"));
   if (fields.invoiceStatus && !values.invoiceStatuses.has(fields.invoiceStatus)) issues.push(issue("invalid_invoice_status", "发票状态不受支持"));
-  for (const field of ["renewsAt", "expiresAt"]) if (fields[field] && !validDate(fields[field])) issues.push(issue("invalid_date", `${labels[field]}必须是真实有效的 YYYY-MM-DD 日期`));
+  for (const field of ["renewsAt"]) if (fields[field] && !validDate(fields[field])) issues.push(issue("invalid_date", `${labels[field]}必须是真实有效的 YYYY-MM-DD 日期`));
   if (fields.reminderDays !== undefined && (!Number.isInteger(fields.reminderDays) || fields.reminderDays < 0 || fields.reminderDays > 365)) issues.push(issue("invalid_reminder", "提醒天数必须是 0 到 365 的整数"));
   for (const field of ["website", "invoiceUrl"]) if (fields[field] && !/^https:\/\//i.test(fields[field])) issues.push(issue("invalid_url", `${labels[field]}必须使用 HTTPS`));
   if (Array.isArray(fields.tags)) {

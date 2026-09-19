@@ -1,6 +1,6 @@
 export const INTAKE_FIELDS = [
   "serviceName", "providerName", "role", "adoptionStatus", "website", "planName", "billingMode",
-  "amount", "currency", "billingCycle", "renewsAt", "expiresAt", "autoRenew",
+  "amount", "currency", "billingCycle", "renewsAt", "autoRenew",
   "reminderDays", "channel", "tags", "notes", "invoiceStatus", "invoiceNumber", "invoiceUrl",
 ];
 
@@ -20,7 +20,6 @@ const subscriptionProperties = {
   currency: { type: ["string", "null"], enum: ["CNY", "USD", "EUR", "HKD", "GBP", "JPY", null] },
   billingCycle: { type: ["string", "null"], enum: ["monthly", "yearly", "none", null] },
   renewsAt: nullableString,
-  expiresAt: nullableString,
   autoRenew: nullableBoolean,
   reminderDays: nullableNumber,
   channel: nullableString,
@@ -67,7 +66,7 @@ function normalizeSubscriptionFields(source) {
     if (["serviceName", "providerName", "planName", "channel", "invoiceNumber"].includes(field)) result[field] = cleanString(value, 200);
     else if (["website", "invoiceUrl"].includes(field)) result[field] = cleanString(value, 1000);
     else if (field === "notes") result[field] = cleanString(value, 2000);
-    else if (["renewsAt", "expiresAt"].includes(field)) result[field] = cleanString(value, 10);
+    else if (field === "renewsAt") result[field] = cleanString(value, 10);
     else if (field === "tags" && Array.isArray(value)) result.tags = [...new Set(value.map((tag) => cleanString(tag, 32)).filter(Boolean))].slice(0, 12);
     else result[field] = value;
   }

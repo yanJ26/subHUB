@@ -57,8 +57,7 @@ export function applyIntakeSubscriptionUpdate(state, draft) {
   if (has("amount") && Number.isFinite(changes.amount)) entitlement.amount = changes.amount;
   if (has("currency")) entitlement.currency = changes.currency;
   if (has("billingCycle")) entitlement.billingCycle = changes.billingCycle;
-  if (has("renewsAt")) entitlement.renewsAt = text(changes.renewsAt);
-  if (has("expiresAt")) entitlement.expiresAt = text(changes.expiresAt);
+  if (has("renewsAt")) { entitlement.renewsAt = text(changes.renewsAt); entitlement.expiresAt = text(changes.renewsAt); }
   if (has("autoRenew")) entitlement.autoRenew = Boolean(changes.autoRenew);
   if (has("channel")) entitlement.channel = text(changes.channel);
   if (has("reminderDays") && Number.isInteger(changes.reminderDays)) entitlement.reminderDays = changes.reminderDays;
@@ -86,8 +85,7 @@ export function addIntakeSubscription(state, fields) {
     currency: fields.currency || "CNY",
     billingCycle: fields.billingCycle || "monthly",
     status: fields.billingMode === "trial" ? "trial" : "active",
-    ...(text(fields.renewsAt) ? { renewsAt: text(fields.renewsAt) } : {}),
-    ...(text(fields.expiresAt) ? { expiresAt: text(fields.expiresAt) } : {}),
+    ...(text(fields.renewsAt) ? { renewsAt: text(fields.renewsAt), expiresAt: text(fields.renewsAt) } : {}),
     autoRenew: Boolean(fields.autoRenew),
     ...(text(fields.channel) ? { channel: text(fields.channel) } : {}),
     reminderDays: Number.isInteger(fields.reminderDays) ? fields.reminderDays : 7,
