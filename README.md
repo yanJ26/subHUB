@@ -1,7 +1,7 @@
 # subHUB
 
 > [!NOTE]
-> subHUB 由 [apiHUB](https://github.com/yanJ26/apiHUB)、[agentHUB](https://github.com/yanJ26/agentHUB) 和 [buddyHUB](https://github.com/yanJ26/buddyHUB) 三个个人项目演进整合而来。三个旧项目已于 **2026 年 9 月 19 日**停止维护并转为私有归档；subHUB 是后续唯一维护的统一项目。
+> subHUB 由 [apiHUB-DC](https://github.com/yanJ26/apiHUB-DC)、[agentHUB-DC](https://github.com/yanJ26/agentHUB-DC) 和 [buddyHUB-DC](https://github.com/yanJ26/buddyHUB-DC) 三个个人项目演进整合而来。名称中的 `DC` 表示 Discontinued。三个旧项目已于 **2026 年 9 月 19 日**停止维护并转为私有归档；subHUB 是后续唯一维护的统一项目。
 
 subHUB 是一个自托管的个人服务、订阅与数字资产工具。它用三个页面管理大模型官方订阅、API、Agent 工具、域名、设备、服务器、账号、代码仓库和网站：**总览、服务、资产**。
 
@@ -12,13 +12,13 @@ subHUB 是一个自托管的个人服务、订阅与数字资产工具。它用�
 - **一句话优先**：自由描述服务或订阅，不要求先理解厂商、目录、权益和发票之间的内部关系。
 - **三层概念分开**：Codex、Qoder、Kimi 是服务；付费、试用、免费方案或按量关系是订阅记录；示例域名、电脑和 VPS 是自己控制的资产。
 - **单一日期**：日常用「到期 / 下次续费」一个日期表达本期结束与下次扣款；底层仍保留续费/到期两列以兼容分期等旧数据，但界面统一显示。
-- **来源可追溯**：apiHUB、agentHUB、buddyHUB 只作为只读迁移来源，每条迁移记录保留来源 ID 和内容哈希。
+- **来源可追溯**：apiHUB-DC、agentHUB-DC、buddyHUB-DC 只作为只读迁移来源，每条迁移记录保留来源 ID 和内容哈希。
 - **密钥隔离**：业务数据只保存凭据标签，不接受或保存真实 Key、Token、密码与 Cookie。
 - **兼容但不打扰**：旧版关系字段继续保留以保护已有数据，但不再作为日常操作步骤展示。
 
 ## 当前能力
 
-- apiHUB 式自然语言录入：可以只记录未订阅服务，也可以新增或修改订阅；系统整理为可核对草稿后再写入。
+- apiHUB-DC 式自然语言录入：可以只记录未订阅服务，也可以新增或修改订阅；系统整理为可核对草稿后再写入。
 - 加密模型 BYOK：首页录入框中的“模型设置”可配置 OpenAI-compatible 模型；Key 以 AES-256-GCM 加密保存且永不回显。
 - 手工一步式表单作为模型未配置或需要精确修订时的后备入口。
 - 订阅、按量、Token 包、试用、自托管、套餐内含和一次性购买。
@@ -26,7 +26,7 @@ subHUB 是一个自托管的个人服务、订阅与数字资产工具。它用�
 - 发票号码、状态、链接、购买渠道、提醒天数和标签。
 - 域名、设备、服务器、账号、仓库、网站和工作流资产。
 - Owner 登录、持久原子限速、Gateway 私有网络、SQLite WAL、乐观修订号和安全审计。
-- apiHUB / agentHUB / buddyHUB 三源增量迁移预览、逐项冲突决策、内容摘要绑定与来源映射。
+- apiHUB-DC / agentHUB-DC / buddyHUB-DC 三源增量迁移预览、逐项冲突决策、内容摘要绑定与来源映射。
 
 部署、入口、使用关系、额度、快照、效率评价与工作记录属于历史兼容数据，不再出现在日常界面。当前也不接入自动采集、消息入口或第三方信息来源。
 
@@ -128,14 +128,14 @@ Compose 默认把 Web 和 Gateway 都绑定到宿主机回环地址。生产环�
 
 ## 项目沿革与三个旧项目
 
-subHUB 以 apiHUB 的工程基线开始建设，并吸收 agentHUB 与 buddyHUB 中适合统一产品的设计。三个旧仓库现作为私有历史归档，不作为 subHUB 的运行时依赖：
+subHUB 以 apiHUB-DC 的工程基线开始建设，并吸收 agentHUB-DC 与 buddyHUB-DC 中适合统一产品的设计。三个旧仓库现作为私有历史归档，不作为 subHUB 的运行时依赖：
 
 | 来源 | 基线 | 在 subHUB 中的主要作用 |
 | --- | --- | --- |
-| `yanJ26/apiHUB` | `9cb7653` | 安全、会话、账务、汇率、发票、标签与 Gateway 基石 |
-| `yanJ26/agentHUB` | `8a4ed37` | Agent、设备、部署、入口、重要任务与活跃度模型 |
-| `yanJ26/buddyHUB` | `5803521` | 权益优先目录、额度快照、评价和迁移预览理念 |
+| `yanJ26/apiHUB-DC` | `9cb7653` | 安全、会话、账务、汇率、发票、标签与 Gateway 基石 |
+| `yanJ26/agentHUB-DC` | `8a4ed37` | Agent、设备、部署、入口、重要任务与活跃度模型 |
+| `yanJ26/buddyHUB-DC` | `5803521` | 权益优先目录、额度快照、评价和迁移预览理念 |
 
-迁移时优先采用 apiHUB 的费用与发票字段、agentHUB 的运行拓扑字段；buddyHUB 中的非重复快照和评价按来源导入。真实 Key、Token、密码和 Cookie 永不迁移。
+迁移时优先采用 apiHUB-DC 的费用与发票字段、agentHUB-DC 的运行拓扑字段；buddyHUB-DC 中的非重复快照和评价按来源导入。真实 Key、Token、密码和 Cookie 永不迁移。
 
 更多设计决策见 [`docs/adr/0001-subhub-foundation.md`](docs/adr/0001-subhub-foundation.md)、[`docs/domain-model.md`](docs/domain-model.md) 和 [`docs/migration/legacy-sources.md`](docs/migration/legacy-sources.md)。
