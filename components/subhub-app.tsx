@@ -11,6 +11,7 @@ import { UsageMapView } from "./usage-map-view";
 import { AssetsView } from "./assets-view";
 import { WorkspaceEditor, type EditorKind } from "./workspace-editor";
 import { RelationshipEditor, type RelationshipEditorKind } from "./relationship-editor";
+import { SmartIntakePanel } from "./smart-intake-panel";
 import { previewState } from "@/lib/preview-data";
 import type { ExchangeRateSnapshot, WorkspaceState } from "@/lib/domain";
 import { defaultExchangeRates } from "@/lib/metrics";
@@ -37,6 +38,7 @@ export function SubHubApp() {
   const [state, setState] = useState<WorkspaceState>(previewState);
   const [revision, setRevision] = useState(0);
   const [exchangeRates, setExchangeRates] = useState<ExchangeRateSnapshot>(defaultExchangeRates);
+  const [intakeConfigured, setIntakeConfigured] = useState(false);
   const [editor, setEditor] = useState<{ kind: EditorKind; editId?: string } | null>(null);
   const [relationshipEditor, setRelationshipEditor] = useState<{ kind: RelationshipEditorKind; editId?: string; entitlementId?: string } | null>(null);
   const [connection, setConnection] = useState<ConnectionMode>("checking");
@@ -48,10 +50,11 @@ export function SubHubApp() {
   async function loadServerState() {
     const response = await fetch(`${BASE_PATH}/api/web/state`, { cache: "no-store" });
     if (!response.ok) throw new Error("gateway_unavailable");
-    const result = await response.json() as { workspace: WorkspaceState; revision: number; exchangeRates?: ExchangeRateSnapshot };
+    const result = await response.json() as { workspace: WorkspaceState; revision: number; exchangeRates?: ExchangeRateSnapshot; intake?: { configured?: boolean } };
     setState(result.workspace);
     setRevision(result.revision || 0);
     if (result.exchangeRates) setExchangeRates(result.exchangeRates);
+    setIntakeConfigured(Boolean(result.intake?.configured));
     setConnection("server");
   }
 
@@ -128,14 +131,14 @@ export function SubHubApp() {
     </aside>
 
     <main className="main-content">
-      <header className="topbar"><div><span className="kicker">SERVICES · RIGHTS · ASSETS</span><h1>{title}</h1></div><div className="topbar-actions"><label className="search-box"><span>⌕</span><input value={search} onChange={(event) => { setSearch(event.target.value); if (event.target.value) setView("catalog"); }} placeholder="搜索产品、厂商、角色或模型" /></label><button className="quick-button" onClick={() => setEditor({ kind: "quickSubscription" })}>＋ 添加记录</button></div></header>
-      {view === "overview" && <DashboardView state={state} exchangeRates={exchangeRates} onOpenItem={setSelectedItemId} onShowCatalog={() => setView("catalog")} />}
+      <header className="topbar"><div><span className="kicker">SERVICES · RIGHTS · ASSETS</span><h1>{title}</h1></div><div className="topbar-actions"><label className="search-box"><span>⌕</span><input value={search} onChange={(event) => { setSearch(event.target.value); if (event.target.value) setView("catalog"); }} placeholder="搜索产品、厂商、角色或模型" /></label><button className="quick-button" onClick={() => { setView("overview"); window.setTimeout(() => document.getElementById("smart-intake-input")?.focus(), 0); }}>◇ 一句话录入</button></div></header>
+      {view === "overview" && <><SmartIntakePanel configured={intakeConfigured} serverMode={connection === "server"} onOpenSettings={() => setView("settings")} onCommitted={(workspace, nextRevision) => { setState(workspace); setRevision(nextRevision); }} /><DashboardView state={state} exchangeRates={exchangeRates} onOpenItem={setSelectedItemId} onShowCatalog={() => setView("catalog")} /></>}
       {view === "catalog" && <CatalogView state={state} search={search} onOpenItem={setSelectedItemId} onAdd={() => setEditor({ kind: "catalog" })} />}
       {view === "entitlements" && <EntitlementsView state={state} exchangeRates={exchangeRates} onOpenItem={setSelectedItemId} onAdd={() => setEditor({ kind: "quickSubscription" })} onEdit={(editId) => setEditor({ kind: "entitlement", editId })} />}
       {view === "assets" && <AssetsView state={state} onOpenItem={setSelectedItemId} onAdd={() => setEditor({ kind: "asset" })} onAddDeployment={() => setEditor({ kind: "deployment" })} onEditAsset={(editId) => setEditor({ kind: "asset", editId })} onEditDeployment={(editId) => setEditor({ kind: "deployment", editId })} />}
       {view === "map" && <UsageMapView state={state} onOpenItem={setSelectedItemId} onAddLink={() => setRelationshipEditor({ kind: "usageLink" })} onAddSurface={() => setRelationshipEditor({ kind: "surface" })} onEditLink={(editId) => setRelationshipEditor({ kind: "usageLink", editId })} />}
       {view === "evaluations" && <EvaluationsView state={state} revision={revision} onOpenItem={setSelectedItemId} serverMode={connection === "server"} onWorkspaceChange={(next) => { setState(next); if (connection === "server") void loadServerState(); }} onAddEvaluation={() => setRelationshipEditor({ kind: "evaluation" })} onAddWorkRecord={() => setRelationshipEditor({ kind: "workRecord" })} />}
-      {view === "settings" && <SettingsView state={state} revision={revision} mode={connection === "server" ? "server" : connection === "preview" ? "preview" : "unavailable"} onWorkspaceChange={(next) => { setState(next); if (connection === "server") void loadServerState(); }} />}
+      {view === "settings" && <SettingsView state={state} revision={revision} mode={connection === "server" ? "server" : connection === "preview" ? "preview" : "unavailable"} onIntakeConfiguredChange={setIntakeConfigured} onWorkspaceChange={(next) => { setState(next); if (connection === "server") void loadServerState(); }} />}
     </main>
 
     <nav className="mobile-nav">{nav.map((item) => <button className={view === item.id ? "active" : ""} key={item.id} onClick={() => setView(item.id)}><span>{item.icon}</span><small>{item.label.replace("完整", "").replace("使用", "")}</small></button>)}</nav>

@@ -6,10 +6,35 @@ const secretPatterns = [
   /\b(?:api[_ -]?key|access[_ -]?token|secret[_ -]?key|password)\s*[:=]\s*\S{8,}/i,
   /\bAuthorization\s*:\s*Bearer\s+\S+/i,
   /\bBearer\s+[A-Za-z0-9._~-]{16,}/i,
+  /\bCookie\s*:\s*\S{8,}/i,
+  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
 ];
 
+function passesLuhn(value) {
+  let sum = 0;
+  let doubleDigit = false;
+  for (let index = value.length - 1; index >= 0; index -= 1) {
+    let digit = Number(value[index]);
+    if (doubleDigit) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+    doubleDigit = !doubleDigit;
+  }
+  return sum % 10 === 0;
+}
+
+function containsLikelyPaymentCard(value) {
+  const candidates = value.match(/\b(?:\d[ -]?){13,19}\b/g) || [];
+  return candidates.some((candidate) => {
+    const digits = candidate.replace(/\D/g, "");
+    return digits.length >= 13 && digits.length <= 19 && passesLuhn(digits);
+  });
+}
+
 export function containsLikelySecret(value) {
-  return typeof value === "string" && secretPatterns.some((pattern) => pattern.test(value));
+  return typeof value === "string" && (secretPatterns.some((pattern) => pattern.test(value)) || containsLikelyPaymentCard(value));
 }
 
 const sensitiveKey = /^(?:api[_-]?key|access[_-]?token|token|secret|secret[_-]?key|private[_-]?key|password|authorization|cookie|credential)$/i;

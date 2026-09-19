@@ -4,6 +4,9 @@ import { pathToFileURL } from "node:url";
 import { SubHubDatabase } from "./database.mjs";
 import { loadConfig, validateRuntimeConfig } from "./config.mjs";
 import { fetchEcbRates } from "./exchange-rates.mjs";
+import { parseIntakeWithModel } from "./intake-llm.mjs";
+import { evaluateIntakeResult } from "./intake-policy.mjs";
+import { addIntakeSubscription } from "./intake-workspace.mjs";
 import { mergeMigrationWorkspace, previewLegacyMigration, resolveMigrationConflicts } from "./migration.mjs";
 import { findLikelySecretPaths, sha256, verifyBearer } from "./security.mjs";
 import { assertExpectedRevision, assertWorkspaceState } from "./validation.mjs";
@@ -71,9 +74,46 @@ function safeImportedData(value) {
   }
 }
 
+function isPrivateIpv4(hostname) {
+  const parts = hostname.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  return parts[0] === 10 || parts[0] === 127 || parts[0] === 0 ||
+    (parts[0] === 169 && parts[1] === 254) ||
+    (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+    (parts[0] === 192 && parts[1] === 168);
+}
+
+function normalizeModelSettings(input = {}, config) {
+  const baseUrl = typeof input.baseUrl === "string" ? input.baseUrl.trim().replace(/\/$/, "") : "";
+  const model = typeof input.model === "string" ? input.model.trim() : "";
+  const apiKey = typeof input.apiKey === "string" ? input.apiKey.trim() : "";
+  const issues = [];
+  if (!baseUrl || baseUrl.length > 500) issues.push({ code: "invalid_base_url", message: "模型接口地址不能为空且不能超过 500 个字符" });
+  if (!model || model.length > 200) issues.push({ code: "invalid_model", message: "模型 ID 不能为空且不能超过 200 个字符" });
+  if (apiKey && (apiKey.length < 8 || apiKey.length > 512)) issues.push({ code: "invalid_api_key", message: "API Key 长度应在 8 到 512 个字符之间" });
+  try {
+    const parsed = new URL(baseUrl);
+    if (parsed.username || parsed.password) issues.push({ code: "credentials_in_url", message: "接口地址不能包含用户名或密码" });
+    if (parsed.search || parsed.hash) issues.push({ code: "query_in_url", message: "接口地址不能包含查询参数或片段" });
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
+    const localHttpAllowed = parsed.protocol === "http:" && loopback && (!config.isProduction || config.allowPrivateModelEndpoints);
+    if (parsed.protocol !== "https:" && !localHttpAllowed) {
+      issues.push({ code: "https_required", message: "模型接口必须使用 HTTPS；仅本机回环地址允许 HTTP" });
+    }
+    const privateHost = isPrivateIpv4(parsed.hostname) || parsed.hostname === "[::1]" || parsed.hostname === "localhost";
+    if (privateHost && !loopback && !config.allowPrivateModelEndpoints) {
+      issues.push({ code: "private_endpoint_blocked", message: "默认不允许私网模型地址；如确有需要，请在服务器显式启用私网端点" });
+    }
+  } catch {
+    issues.push({ code: "invalid_base_url", message: "模型接口地址格式无效" });
+  }
+  return { value: { baseUrl, model, apiKey }, issues };
+}
+
 function statusForError(error) {
   if (["invalid_json", "request_too_complex", "invalid_workspace_state", "invalid_backup", "invalid_apihub_export", "invalid_agenthub_export", "invalid_buddyhub_export", "missing_required_fields", "expected_revision_required"].includes(error.message)) return 400;
-  if (["revision_conflict", "migration_preview_mismatch", "restore_preview_mismatch"].includes(error.message)) return 409;
+  if (["revision_conflict", "migration_preview_mismatch", "restore_preview_mismatch", "intake_draft_not_pending"].includes(error.message)) return 409;
+  if (error.message === "intake_draft_expired") return 410;
   if (error.message === "migration_conflicts_unresolved") return 422;
   if (error.message === "likely_secret_detected") return 422;
   if (error.message === "request_too_large") return 413;
@@ -81,8 +121,8 @@ function statusForError(error) {
   return 500;
 }
 
-export function createGateway(config = loadConfig(), database, { fetchExchangeRates = fetchEcbRates, now = () => new Date() } = {}) {
-  const db = database || new SubHubDatabase(config.dbPath);
+export function createGateway(config = loadConfig(), database, { fetchExchangeRates = fetchEcbRates, parseIntake = parseIntakeWithModel, now = () => new Date() } = {}) {
+  const db = database || new SubHubDatabase(config.dbPath, { secretsMasterKey: config.secretsMasterKey });
   let exchangeRateRefresh = null;
 
   async function getMonthlyExchangeRates() {
@@ -142,7 +182,8 @@ export function createGateway(config = loadConfig(), database, { fetchExchangeRa
     })));
     try {
       if (request.method === "GET" && url.pathname === "/health") {
-        return sendJson(response, 200, { ok: true, service: "subhub-gateway", catalogItems: db.countCatalogItems(), revision: db.getRevision(), requestId });
+        const intake = db.getModelSettingsStatus(config);
+        return sendJson(response, 200, { ok: true, service: "subhub-gateway", catalogItems: db.countCatalogItems(), revision: db.getRevision(), intakeConfigured: intake.configured && (intake.source !== "byok" || intake.storageAvailable), requestId });
       }
 
       if (url.pathname.startsWith("/v1/internal/") && verifyBearer(request.headers.authorization, config.webInternalToken)) {
@@ -167,7 +208,80 @@ export function createGateway(config = loadConfig(), database, { fetchExchangeRa
       if (request.method === "GET" && url.pathname === "/v1/web/state") {
         const state = db.getState();
         state.exchangeRates = await getMonthlyExchangeRates();
-        return sendJson(response, 200, { ...state, requestId });
+        const modelSettings = db.getModelSettingsStatus(config);
+        return sendJson(response, 200, { ...state, intake: { configured: modelSettings.configured && (modelSettings.source !== "byok" || modelSettings.storageAvailable) }, requestId });
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/web/model-settings") {
+        return sendJson(response, 200, { settings: db.getModelSettingsStatus(config), requestId });
+      }
+
+      if (request.method === "PUT" && url.pathname === "/v1/web/model-settings") {
+        const body = await readJson(request, Math.min(config.maxBodyBytes, 16 * 1024));
+        const { value, issues } = normalizeModelSettings(body.settings, config);
+        if (issues.length) return sendJson(response, 400, { error: "invalid_model_settings", issues, requestId });
+        try {
+          return sendJson(response, 200, { settings: db.saveModelSettings(value), requestId });
+        } catch (error) {
+          if (error instanceof Error && error.message === "secrets_master_key_unavailable") {
+            return sendJson(response, 503, { error: error.message, message: "服务器尚未配置独立加密主密钥，无法安全保存 API Key。", requestId });
+          }
+          if (error instanceof Error && error.message === "api_key_required") {
+            return sendJson(response, 400, { error: error.message, message: "首次配置必须填写 API Key。", requestId });
+          }
+          throw error;
+        }
+      }
+
+      if (request.method === "DELETE" && url.pathname === "/v1/web/model-settings") {
+        return sendJson(response, 200, { deleted: db.deleteModelSettings(), settings: db.getModelSettingsStatus(config), requestId });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/web/intake") {
+        const body = await readJson(request, Math.min(config.maxBodyBytes, 64 * 1024));
+        const message = typeof body.message === "string" ? body.message.trim() : "";
+        if (!message || message.length > 12_000) return sendJson(response, 400, { error: "invalid_message", requestId });
+        if (findLikelySecretPaths(message).length) return sendJson(response, 422, { status: "rejected", error: "likely_secret_detected", message: "内容疑似包含密钥、Token、密码或完整凭据，原文未保存。", requestId });
+        const modelConfig = db.getModelSettingsStatus(config);
+        if (!modelConfig.configured) return sendJson(response, 503, { status: "unavailable", error: "model_not_configured", message: "自然语言录入模型尚未配置。", requestId });
+        const tagNamesAtSubmission = db.getWorkspace().tagDefinitions.map((tag) => tag.name);
+        let parsed;
+        try {
+          parsed = await parseIntake(message, db.getEffectiveModelConfig({ ...config, allowedTags: tagNamesAtSubmission }));
+          safeImportedData(parsed.subscription);
+        } catch (error) {
+          if (error instanceof Error && error.message === "likely_secret_detected") throw error;
+          return sendJson(response, 503, { status: "parse_failed", error: "semantic_gate_unavailable", message: "语义整理暂时不可用，未写入任何数据。", requestId });
+        }
+        const current = db.getWorkspace();
+        const revision = db.getRevision();
+        const decision = evaluateIntakeResult(parsed, current, { confidenceThreshold: config.confidenceThreshold, allowedTags: current.tagDefinitions.map((tag) => tag.name) });
+        if (["rejected", "needs_clarification"].includes(decision.status)) {
+          return sendJson(response, decision.status === "rejected" ? 422 : 200, { status: decision.status, issues: decision.issues, requestId });
+        }
+        const expiresAt = new Date(now().getTime() + config.intakeTtlMinutes * 60_000).toISOString();
+        const draft = db.createIntakeDraft({ messageHash: sha256(message), payload: decision.payload, summary: decision.summary, expectedRevision: revision, expiresAt });
+        return sendJson(response, 201, { status: "pending_confirmation", draft: { id: draft.id, payload: draft.payload, summary: draft.summary, expiresAt: draft.expiresAt, expectedRevision: draft.expectedRevision }, requestId });
+      }
+
+      const intakeDraftMatch = url.pathname.match(/^\/v1\/web\/intake\/drafts\/([0-9a-f-]+)\/(commit|cancel)$/i);
+      if (intakeDraftMatch && request.method === "POST") {
+        const draft = db.getIntakeDraft(intakeDraftMatch[1]);
+        if (!draft) throw new Error("intake_draft_not_found");
+        if (intakeDraftMatch[2] === "cancel") {
+          if (!db.cancelIntakeDraft(draft.id)) throw new Error("intake_draft_not_pending");
+          return sendJson(response, 200, { status: "cancelled", requestId });
+        }
+        if (draft.status !== "pending_confirmation") throw new Error("intake_draft_not_pending");
+        if (Date.parse(draft.expiresAt) <= now().getTime()) throw new Error("intake_draft_expired");
+        if (draft.expectedRevision !== db.getRevision()) throw new Error("revision_conflict");
+        const next = addIntakeSubscription(db.getWorkspace(), draft.payload);
+        assertWorkspaceState(next);
+        const workspace = db.replaceWorkspace(next, {
+          actor: "intake:owner", summary: `Owner-confirmed natural-language subscription: ${String(draft.payload.serviceName).slice(0, 200)}`,
+          expectedRevision: draft.expectedRevision, intakeDraftId: draft.id,
+        });
+        return sendJson(response, 200, { status: "committed", workspace, revision: db.getRevision(), requestId });
       }
 
       if (request.method === "PUT" && url.pathname === "/v1/web/state") {

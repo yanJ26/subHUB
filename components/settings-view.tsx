@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { WorkspaceState } from "@/lib/domain";
 
 type ConnectionMode = "preview" | "server" | "unavailable";
@@ -14,6 +14,15 @@ type MigrationPreview = {
   previewToken: string;
 };
 type RestorePreview = { restoreToken: string; targetRevision: number; stats: Record<string, number> };
+type ModelSettingsStatus = {
+  configured: boolean;
+  source: "byok" | "environment" | "unconfigured";
+  baseUrl: string;
+  model: string;
+  keyConfigured: boolean;
+  storageAvailable: boolean;
+  updatedAt: string | null;
+};
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
 
@@ -23,7 +32,13 @@ async function readJsonFile(file: File | undefined) {
   return JSON.parse(await file.text());
 }
 
-export function SettingsView({ mode, onWorkspaceChange }: { state: WorkspaceState; revision: number; mode: ConnectionMode; onWorkspaceChange: (state: WorkspaceState) => void }) {
+export function SettingsView({ mode, onWorkspaceChange, onIntakeConfiguredChange }: {
+  state: WorkspaceState;
+  revision: number;
+  mode: ConnectionMode;
+  onWorkspaceChange: (state: WorkspaceState) => void;
+  onIntakeConfiguredChange: (configured: boolean) => void;
+}) {
   const [apiFile, setApiFile] = useState<File>();
   const [agentFile, setAgentFile] = useState<File>();
   const [buddyFile, setBuddyFile] = useState<File>();
@@ -34,6 +49,55 @@ export function SettingsView({ mode, onWorkspaceChange }: { state: WorkspaceStat
   const [message, setMessage] = useState("");
   const [auditLogs, setAuditLogs] = useState<Array<{ id: string; occurredAt: string; action: string; summary: string }>>([]);
   const [busy, setBusy] = useState(false);
+  const [modelStatus, setModelStatus] = useState<ModelSettingsStatus | null>(null);
+  const [modelSettings, setModelSettings] = useState({ baseUrl: "https://api.openai.com/v1", model: "", apiKey: "" });
+  const [modelMessage, setModelMessage] = useState("");
+  const [modelBusy, setModelBusy] = useState(false);
+
+  useEffect(() => {
+    if (mode !== "server") return;
+    let active = true;
+    void fetch(`${BASE_PATH}/api/web/model-settings`, { cache: "no-store" }).then(async (response) => {
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "读取模型设置失败");
+      if (!active) return;
+      setModelStatus(result.settings);
+      setModelSettings({ baseUrl: result.settings.baseUrl || "https://api.openai.com/v1", model: result.settings.model || "", apiKey: "" });
+      onIntakeConfiguredChange(Boolean(result.settings.configured && (result.settings.source !== "byok" || result.settings.storageAvailable)));
+    }).catch((error) => active && setModelMessage(error instanceof Error ? error.message : "读取模型设置失败"));
+    return () => { active = false; };
+  }, [mode, onIntakeConfiguredChange]);
+
+  async function saveModelSettings() {
+    if (!modelSettings.baseUrl.trim() || !modelSettings.model.trim()) return;
+    setModelBusy(true); setModelMessage("");
+    try {
+      const response = await fetch(`${BASE_PATH}/api/web/model-settings`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ settings: modelSettings }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || result.issues?.[0]?.message || result.error || "模型设置保存失败");
+      setModelStatus(result.settings);
+      setModelSettings({ baseUrl: result.settings.baseUrl, model: result.settings.model, apiKey: "" });
+      onIntakeConfiguredChange(true);
+      setModelMessage("模型设置已加密保存，可以使用一句话录入。");
+    } catch (error) { setModelMessage(error instanceof Error ? error.message : "模型设置保存失败"); }
+    finally { setModelBusy(false); }
+  }
+
+  async function deleteModelSettings() {
+    setModelBusy(true); setModelMessage("");
+    try {
+      const response = await fetch(`${BASE_PATH}/api/web/model-settings`, { method: "DELETE" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "删除模型设置失败");
+      setModelStatus(result.settings);
+      setModelSettings({ baseUrl: result.settings.baseUrl || "https://api.openai.com/v1", model: result.settings.model || "", apiKey: "" });
+      onIntakeConfiguredChange(Boolean(result.settings.configured));
+      setModelMessage(result.settings.configured ? "已删除网页 BYOK，当前使用服务器环境配置。" : "已删除网页 BYOK，一句话录入已停用。");
+    } catch (error) { setModelMessage(error instanceof Error ? error.message : "删除模型设置失败"); }
+    finally { setModelBusy(false); }
+  }
 
   async function generatePreview() {
     if (!apiFile && !agentFile && !buddyFile) return setMessage("请至少选择一个旧项目导出的 JSON 文件。");
@@ -130,6 +194,22 @@ export function SettingsView({ mode, onWorkspaceChange }: { state: WorkspaceStat
 
   return <div className="settings-stack">
     <section className="settings-layout">
+      <article className="panel model-settings-panel">
+        <span className="kicker">SEMANTIC INTAKE</span><h2>一句话录入模型</h2>
+        <p>填写支持 OpenAI-compatible Chat Completions 和严格 JSON Schema 的模型。API Key 只在这里接收，加密后保存且永不回显。</p>
+        {modelStatus && <span className={`connection-chip ${modelStatus.configured ? "server" : "unavailable"}`}>{modelStatus.configured ? `${modelStatus.source === "byok" ? "网页 BYOK" : "服务器环境"} · ${modelStatus.model}` : "尚未配置"}</span>}
+        {modelStatus && !modelStatus.storageAvailable && <small className="settings-error">服务器缺少 SUBHUB_SECRETS_MASTER_KEY，暂时不能安全保存网页 Key。</small>}
+        <div className="model-settings-fields">
+          <label><span>兼容接口地址</span><input type="url" maxLength={500} value={modelSettings.baseUrl} onChange={(event) => setModelSettings({ ...modelSettings, baseUrl: event.target.value })} placeholder="https://provider.example/v1" /></label>
+          <label><span>模型 ID</span><input maxLength={200} value={modelSettings.model} onChange={(event) => setModelSettings({ ...modelSettings, model: event.target.value })} placeholder="例如：your-model-id" /></label>
+          <label><span>API Key</span><input type="password" minLength={8} maxLength={512} autoComplete="new-password" value={modelSettings.apiKey} onChange={(event) => setModelSettings({ ...modelSettings, apiKey: event.target.value })} placeholder={modelStatus?.source === "byok" ? "留空保留当前 Key" : "首次网页配置必须填写"} /></label>
+        </div>
+        {modelMessage && <small className="settings-message" role="status">{modelMessage}</small>}
+        <div className="model-settings-actions">
+          {modelStatus?.source === "byok" && <button className="danger-button" disabled={modelBusy} onClick={() => void deleteModelSettings()}>删除网页 BYOK</button>}
+          <button className="primary-button" disabled={mode !== "server" || modelBusy || !modelStatus?.storageAvailable || !modelSettings.baseUrl.trim() || !modelSettings.model.trim()} onClick={() => void saveModelSettings()}>{modelBusy ? "正在保存…" : modelStatus?.source === "byok" ? "保存模型设置" : "安全保存 Key"}</button>
+        </div>
+      </article>
       <article className="panel migration-panel">
         <span className="kicker">MIGRATION</span><h2>旧项目迁移</h2>
         <p>分别选择 apiHUB、agentHUB 和 buddyHUB 导出的 JSON。系统先生成候选和冲突，不会直接覆盖。</p>

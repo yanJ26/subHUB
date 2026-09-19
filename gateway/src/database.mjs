@@ -3,6 +3,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_EXCHANGE_RATES } from "./exchange-rates.mjs";
+import { decryptSecret, encryptSecret } from "./secrets.mjs";
 import { sha256 } from "./security.mjs";
 import { assertExpectedRevision, assertWorkspaceState } from "./validation.mjs";
 
@@ -148,6 +149,37 @@ const migrations = [{
     );
     CREATE INDEX IF NOT EXISTS idx_login_attempts_reset ON login_attempts(reset_at);
   `,
+}, {
+  version: 3,
+  sql: `
+    CREATE TABLE IF NOT EXISTS intake_drafts (
+      id TEXT PRIMARY KEY,
+      message_hash TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      status TEXT NOT NULL,
+      expected_revision INTEGER NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      committed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_intake_drafts_status_expires ON intake_drafts(status, expires_at);
+  `,
+}, {
+  version: 4,
+  sql: `
+    CREATE TABLE IF NOT EXISTS model_settings (
+      id TEXT PRIMARY KEY CHECK (id = 'active'),
+      base_url TEXT NOT NULL,
+      model TEXT NOT NULL,
+      api_key_ciphertext TEXT NOT NULL,
+      api_key_iv TEXT NOT NULL,
+      api_key_auth_tag TEXT NOT NULL,
+      key_version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `,
 }];
 
 const tableDeleteOrder = [
@@ -171,8 +203,9 @@ function parseJson(value, fallback = []) {
 }
 
 export class SubHubDatabase {
-  constructor(dbPath) {
+  constructor(dbPath, { secretsMasterKey = null } = {}) {
     if (dbPath !== ":memory:") mkdirSync(path.dirname(dbPath), { recursive: true });
+    this.secretsMasterKey = secretsMasterKey;
     this.db = new DatabaseSync(dbPath);
     this.db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
     this.applyMigrations();
@@ -243,7 +276,7 @@ export class SubHubDatabase {
     }
   }
 
-  replaceWorkspace(input, { actor = "owner", summary = "Replaced workspace", expectedRevision } = {}) {
+  replaceWorkspace(input, { actor = "owner", summary = "Replaced workspace", expectedRevision, intakeDraftId } = {}) {
     const state = assertWorkspaceState(input);
     const insertProvider = this.db.prepare("INSERT INTO providers (id, name, website, notes) VALUES (?, ?, ?, ?)");
     const insertItem = this.db.prepare("INSERT INTO catalog_items (id, provider_id, name, description, adoption_status, website, last_reviewed_at, use_cases_json, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
@@ -295,6 +328,11 @@ export class SubHubDatabase {
       for (const row of state.evaluations) insertEvaluation.run(row.id, row.itemId, row.evaluatedAt, row.utilization, row.outputValue, row.quotaPressure, row.trend, row.recommendation, row.confidence, row.evidenceCount ?? 0, row.observationDays ?? 0, optional(row.note));
       for (const row of state.workRecords) insertWorkRecord.run(row.id, row.itemId, row.title, row.occurredAt, optional(row.note), optional(row.sourceLabel));
       for (const row of state.legacyRefs) insertLegacyRef.run(row.sourceSystem, row.entityType, row.sourceId, row.targetType, row.targetId, optional(row.sourceHash), row.importedAt || new Date().toISOString());
+      if (intakeDraftId) {
+        const result = this.db.prepare("UPDATE intake_drafts SET status = 'committed', committed_at = ? WHERE id = ? AND status = 'pending_confirmation'")
+          .run(new Date().toISOString(), intakeDraftId);
+        if (result.changes !== 1) throw new Error("intake_draft_not_pending");
+      }
     });
     return this.getWorkspace();
   }
@@ -452,6 +490,114 @@ export class SubHubDatabase {
     return this.db.prepare("SELECT id, occurred_at, actor, action, summary FROM audit_logs ORDER BY occurred_at DESC LIMIT ?")
       .all(Math.min(500, Math.max(1, Number(limit) || 100)))
       .map((row) => ({ id: row.id, occurredAt: row.occurred_at, actor: row.actor, action: row.action, summary: row.summary }));
+  }
+
+  createIntakeDraft({ messageHash, payload, summary, expectedRevision, expiresAt }) {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.db.prepare("UPDATE intake_drafts SET status = 'expired' WHERE status = 'pending_confirmation' AND expires_at <= ?").run(now);
+    this.db.prepare(`INSERT INTO intake_drafts
+      (id, message_hash, payload_json, summary, status, expected_revision, expires_at, created_at)
+      VALUES (?, ?, ?, ?, 'pending_confirmation', ?, ?, ?)`)
+      .run(id, messageHash, JSON.stringify(payload), summary, expectedRevision, expiresAt, now);
+    return this.getIntakeDraft(id);
+  }
+
+  getIntakeDraft(id) {
+    const row = this.db.prepare("SELECT * FROM intake_drafts WHERE id = ?").get(id);
+    return row ? {
+      id: row.id, messageHash: row.message_hash, payload: parseJson(row.payload_json, {}), summary: row.summary,
+      status: row.status, expectedRevision: row.expected_revision, expiresAt: row.expires_at,
+      createdAt: row.created_at, committedAt: row.committed_at,
+    } : null;
+  }
+
+  cancelIntakeDraft(id) {
+    return this.db.prepare("UPDATE intake_drafts SET status = 'cancelled' WHERE id = ? AND status = 'pending_confirmation'").run(id).changes === 1;
+  }
+
+  getModelSettingsStatus(fallback = {}) {
+    const row = this.db.prepare("SELECT base_url, model, created_at, updated_at FROM model_settings WHERE id = 'active'").get();
+    if (row) {
+      return {
+        configured: true,
+        source: "byok",
+        baseUrl: row.base_url,
+        model: row.model,
+        keyConfigured: true,
+        storageAvailable: Boolean(this.secretsMasterKey),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+    }
+    const fallbackConfigured = Boolean(fallback.modelApiKey && fallback.model);
+    return {
+      configured: fallbackConfigured,
+      source: fallbackConfigured ? "environment" : "unconfigured",
+      baseUrl: fallback.modelBaseUrl || "https://api.openai.com/v1",
+      model: fallback.model || "",
+      keyConfigured: Boolean(fallback.modelApiKey),
+      storageAvailable: Boolean(this.secretsMasterKey),
+      createdAt: null,
+      updatedAt: null,
+    };
+  }
+
+  getEffectiveModelConfig(fallback = {}) {
+    const row = this.db.prepare("SELECT * FROM model_settings WHERE id = 'active'").get();
+    if (!row) return fallback;
+    const modelApiKey = decryptSecret({
+      ciphertext: row.api_key_ciphertext,
+      iv: row.api_key_iv,
+      authTag: row.api_key_auth_tag,
+    }, this.secretsMasterKey);
+    return { ...fallback, modelBaseUrl: row.base_url, model: row.model, modelApiKey };
+  }
+
+  saveModelSettings({ baseUrl, model, apiKey }, actor = "web:owner") {
+    if (!this.secretsMasterKey) throw new Error("secrets_master_key_unavailable");
+    const existing = this.db.prepare("SELECT * FROM model_settings WHERE id = 'active'").get();
+    if (!existing && !apiKey) throw new Error("api_key_required");
+    const encrypted = apiKey ? encryptSecret(apiKey, this.secretsMasterKey) : {
+      ciphertext: existing.api_key_ciphertext,
+      iv: existing.api_key_iv,
+      authTag: existing.api_key_auth_tag,
+      keyVersion: existing.key_version,
+    };
+    const timestamp = new Date().toISOString();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare(`INSERT INTO model_settings
+        (id, base_url, model, api_key_ciphertext, api_key_iv, api_key_auth_tag, key_version, created_at, updated_at)
+        VALUES ('active', ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET base_url = excluded.base_url, model = excluded.model,
+          api_key_ciphertext = excluded.api_key_ciphertext, api_key_iv = excluded.api_key_iv,
+          api_key_auth_tag = excluded.api_key_auth_tag, key_version = excluded.key_version, updated_at = excluded.updated_at`)
+        .run(baseUrl, model, encrypted.ciphertext, encrypted.iv, encrypted.authTag, encrypted.keyVersion,
+          existing?.created_at || timestamp, timestamp);
+      this.audit(actor, existing ? "model_settings.update" : "model_settings.create",
+        `${model} at ${baseUrl}; key ${apiKey ? "replaced" : "retained"}`);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return this.getModelSettingsStatus();
+  }
+
+  deleteModelSettings(actor = "web:owner") {
+    const existing = this.db.prepare("SELECT base_url, model FROM model_settings WHERE id = 'active'").get();
+    if (!existing) return false;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare("DELETE FROM model_settings WHERE id = 'active'").run();
+      this.audit(actor, "model_settings.delete", `${existing.model} at ${existing.base_url}; encrypted key removed`);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return true;
   }
 
   getExchangeRates() {

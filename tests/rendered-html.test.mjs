@@ -25,10 +25,11 @@ test("renders subHUB metadata and application shell", async () => {
 });
 
 test("business models exclude raw credentials and include assets", async () => {
-  const [domain, editor, app] = await Promise.all([
+  const [domain, editor, app, smartIntake] = await Promise.all([
     readFile(new URL("../lib/domain.ts", import.meta.url), "utf8"),
     readFile(new URL("../components/workspace-editor.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/subhub-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/smart-intake-panel.tsx", import.meta.url), "utf8"),
   ]);
   const entitlementType = domain.match(/export type Entitlement = \{[\s\S]*?\n\};/)?.[0] ?? "";
   const assetType = domain.match(/export type Asset = \{[\s\S]*?\n\};/)?.[0] ?? "";
@@ -39,5 +40,9 @@ test("business models exclude raw credentials and include assets", async () => {
   assert.match(editor, /添加订阅或使用权益/);
   assert.match(editor, /添加数字资产/);
   assert.match(app, /quickSubscription/);
+  assert.match(app, /一句话录入/);
+  assert.match(smartIntake, /内容可以随意组织，不必按表单顺序/);
+  assert.match(smartIntake, /生成草稿/);
+  assert.match(smartIntake, /确认写入/);
   assert.match(app, /type="password"/);
 });

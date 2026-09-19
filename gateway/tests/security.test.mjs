@@ -8,6 +8,10 @@ test("likely secrets are rejected while credential labels stay safe", () => {
   assert.deepEqual(findLikelySecretPaths({ notes: "normal", apiKey: "real-value" }), ["$.apiKey"]);
   assert.deepEqual(findLikelySecretPaths({ token: "value", cookie: "value", privateKey: "value" }), ["$.token", "$.cookie", "$.privateKey"]);
   assert.equal(containsLikelySecret("password: this-should-never-be-logged"), true);
+  assert.equal(containsLikelySecret("card: 4242 4242 4242 4242"), true);
+  assert.equal(containsLikelySecret("Cookie: session=abcdefghijklmnopqrstuvwxyz"), true);
+  assert.equal(containsLikelySecret("-----BEGIN PRIVATE KEY-----"), true);
+  assert.equal(containsLikelySecret("续费日期 2026-10-18，金额 20 美元"), false);
   assert.equal(verifyBearer("Bearer internal-token", "internal-token"), true);
   assert.equal(verifyBearer("Bearer wrong", "internal-token"), false);
 });

@@ -16,8 +16,12 @@ function manualWorkspace() {
   };
 }
 
-async function withGateway(run) {
-  const gateway = createGateway({ host: "127.0.0.1", port: 0, dbPath: ":memory:", webInternalToken: "test-token", maxBodyBytes: 100_000 });
+async function withGateway(run, { config: configOverrides = {}, parseIntake } = {}) {
+  const gateway = createGateway({
+    host: "127.0.0.1", port: 0, dbPath: ":memory:", webInternalToken: "test-token", maxBodyBytes: 100_000,
+    modelBaseUrl: "https://models.example/v1", modelApiKey: "", model: "", confidenceThreshold: 0.85, intakeTtlMinutes: 15,
+    ...configOverrides,
+  }, undefined, { ...(parseIntake ? { parseIntake } : {}) });
   const address = await gateway.listen();
   try { await run(`http://127.0.0.1:${address.port}`, gateway); }
   finally { await gateway.close(); }
@@ -123,5 +127,130 @@ test("gateway rejects structurally excessive JSON with a stable error", async ()
     });
     assert.equal(response.status, 400);
     assert.equal((await response.json()).error, "request_too_complex");
+  });
+});
+
+test("natural-language intake previews and atomically commits a complete subscription", async () => {
+  const parsed = {
+    intent: "create_subscription",
+    subscription: {
+      serviceName: "Qoder", providerName: "Alibaba", role: "developer_tool", planName: "Pro",
+      billingMode: "subscription", amount: 20, currency: "USD", billingCycle: "monthly",
+      renewsAt: "2026-10-18", expiresAt: "2026-11-18", autoRenew: true, reminderDays: 7,
+      channel: "官网信用卡", tags: [], invoiceStatus: "none",
+    },
+    confidence: 0.98, missingFields: [], riskFlags: [],
+  };
+  await withGateway(async (base, gateway) => {
+    const message = "新增 Qoder Pro，每月 20 美元，10 月 18 日续费，11 月 18 日到期";
+    const previewResponse = await fetch(`${base}/v1/web/intake`, { method: "POST", headers: ownerHeaders, body: JSON.stringify({ message }) });
+    assert.equal(previewResponse.status, 201);
+    const preview = await previewResponse.json();
+    assert.equal(preview.status, "pending_confirmation");
+    assert.match(preview.draft.summary, /Qoder/);
+    assert.equal(gateway.db.getWorkspace().entitlements.length, 0);
+    const stored = gateway.db.db.prepare("SELECT message_hash, payload_json FROM intake_drafts WHERE id = ?").get(preview.draft.id);
+    assert.equal(JSON.stringify(stored).includes(message), false);
+
+    const commitResponse = await fetch(`${base}/v1/web/intake/drafts/${preview.draft.id}/commit`, { method: "POST", headers: ownerHeaders, body: "{}" });
+    assert.equal(commitResponse.status, 200);
+    const committed = await commitResponse.json();
+    assert.equal(committed.workspace.catalog[0].name, "Qoder");
+    assert.equal(committed.workspace.entitlements[0].renewsAt, "2026-10-18");
+    assert.equal(committed.workspace.entitlements[0].expiresAt, "2026-11-18");
+    assert.equal(gateway.db.getIntakeDraft(preview.draft.id).status, "committed");
+    assert.equal(gateway.db.getAuditLogs(10)[0].actor, "intake:owner");
+  }, { config: { modelApiKey: "test-key", model: "test-model" }, parseIntake: async () => parsed });
+});
+
+test("natural-language intake rejects likely secrets before the model is called", async () => {
+  let called = false;
+  await withGateway(async (base) => {
+    const response = await fetch(`${base}/v1/web/intake`, {
+      method: "POST", headers: ownerHeaders,
+      body: JSON.stringify({ message: "新增订阅，api_key=sk-abcdefghijklmnopqrstuvwxyz123456" }),
+    });
+    assert.equal(response.status, 422);
+    assert.equal(called, false);
+  }, { config: { modelApiKey: "test-key", model: "test-model" }, parseIntake: async () => { called = true; return {}; } });
+});
+
+test("natural-language policy rechecks the latest workspace after the model call", async () => {
+  let gatewayRef;
+  const parsed = {
+    intent: "create_subscription",
+    subscription: { serviceName: "Codex", providerName: "OpenAI", planName: "Pro" },
+    confidence: 0.99, missingFields: [], riskFlags: [],
+  };
+  await withGateway(async (base, gateway) => {
+    gatewayRef = gateway;
+    const response = await fetch(`${base}/v1/web/intake`, {
+      method: "POST", headers: ownerHeaders, body: JSON.stringify({ message: "新增 Codex Pro" }),
+    });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.status, "needs_clarification");
+    assert.equal(result.issues.some((entry) => entry.code === "possible_duplicate"), true);
+    assert.equal(gateway.db.db.prepare("SELECT COUNT(*) AS count FROM intake_drafts").get().count, 0);
+  }, {
+    config: { modelApiKey: "test-key", model: "test-model" },
+    parseIntake: async () => {
+      const workspace = structuredClone(emptyWorkspace);
+      workspace.providers.push({ id: "provider-openai", name: "OpenAI" });
+      workspace.catalog.push({ id: "item-codex", providerId: "provider-openai", name: "Codex", description: "", roles: ["developer_tool"], models: [], adoptionStatus: "active" });
+      workspace.entitlements.push({ id: "entitlement-codex", itemId: "item-codex", label: "Pro", billingMode: "subscription", amount: 20, currency: "USD", billingCycle: "monthly", autoRenew: true, tags: [] });
+      gatewayRef.db.replaceWorkspace(workspace, { expectedRevision: 0, summary: "Concurrent write" });
+      return parsed;
+    },
+  });
+});
+
+test("web BYOK settings encrypt the key, never return it, and drive natural-language intake", async () => {
+  const apiKey = "sk-private-test-key-value-123456789";
+  let receivedConfig;
+  const parsed = {
+    intent: "create_subscription",
+    subscription: { serviceName: "Codex", providerName: "OpenAI", planName: "Pro" },
+    confidence: 0.99, missingFields: [], riskFlags: [],
+  };
+  await withGateway(async (base, gateway) => {
+    const saveResponse = await fetch(`${base}/v1/web/model-settings`, {
+      method: "PUT", headers: ownerHeaders,
+      body: JSON.stringify({ settings: { baseUrl: "https://models.example/v1", model: "example-model", apiKey } }),
+    });
+    assert.equal(saveResponse.status, 200);
+    const saved = await saveResponse.json();
+    assert.equal(saved.settings.source, "byok");
+    assert.equal("apiKey" in saved.settings, false);
+    assert.equal(JSON.stringify(saved).includes(apiKey), false);
+    const raw = gateway.db.db.prepare("SELECT * FROM model_settings WHERE id = 'active'").get();
+    assert.equal(JSON.stringify(raw).includes(apiKey), false);
+
+    const intakeResponse = await fetch(`${base}/v1/web/intake`, {
+      method: "POST", headers: ownerHeaders, body: JSON.stringify({ message: "我订阅了 Codex Pro" }),
+    });
+    assert.equal(intakeResponse.status, 201);
+    assert.equal(receivedConfig.modelApiKey, apiKey);
+    assert.equal(receivedConfig.modelBaseUrl, "https://models.example/v1");
+    assert.equal(receivedConfig.model, "example-model");
+
+    const statusResponse = await fetch(`${base}/v1/web/model-settings`, { headers: ownerHeaders });
+    const status = await statusResponse.json();
+    assert.equal(JSON.stringify(status).includes(apiKey), false);
+    assert.equal(status.settings.keyConfigured, true);
+  }, {
+    config: { secretsMasterKey: Buffer.alloc(32, 7) },
+    parseIntake: async (_message, config) => { receivedConfig = config; return parsed; },
+  });
+});
+
+test("BYOK save fails closed when the independent master key is unavailable", async () => {
+  await withGateway(async (base) => {
+    const response = await fetch(`${base}/v1/web/model-settings`, {
+      method: "PUT", headers: ownerHeaders,
+      body: JSON.stringify({ settings: { baseUrl: "https://models.example/v1", model: "example-model", apiKey: "sk-private-test-key" } }),
+    });
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error, "secrets_master_key_unavailable");
   });
 });

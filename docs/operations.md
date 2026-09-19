@@ -11,12 +11,19 @@ subHUB 按单 Owner、单 Web 实例、单 Gateway 实例设计。Web 和 Gatewa
 - SUBHUB_WEB_INTERNAL_TOKEN：与密码、会话 Secret 均不同的随机内部 Token。
 - SUBHUB_PUBLIC_ORIGIN：精确 HTTPS Origin，例如 https://subhub.example.com，不含 /code/subhub。
 - NEXT_PUBLIC_BASE_PATH：反向代理使用的路径前缀；根路径部署时留空。
+- SUBHUB_SECRETS_MASTER_KEY：Base64 编码的独立 32 字节主密钥，用于加密设置页保存的模型 API Key。
+
+生成主密钥：
+
+    node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+
+将结果写入服务器 `.env` 后执行 `docker compose up -d --build`。主密钥与 SQLite 备份应分开保管；丢失主密钥后，已有 BYOK 密文无法恢复，只能删除配置并重新填写。`SUBHUB_GATE_MODEL_*` 可作为服务器环境后备，网页 BYOK 优先。
 
 SUBHUB_TRUST_PROXY_HEADERS 默认保持 false，此时所有请求共享 Owner 限速桶，客户端无法通过伪造 IP 头绕过。只有 Web 端口无法被直连、且反向代理明确覆盖 CF-Connecting-IP / X-Real-IP / X-Forwarded-For 时才启用。
 
 ## 健康、停止与日志
 
-- Gateway /health 返回服务状态、目录数量和数据库修订号。
+- Gateway /health 返回服务状态、目录数量、数据库修订号和自然语言录入是否可用。
 - Web /api/health 会实际探测 Gateway，任一层不可用即返回 503。
 - Compose 为两项服务配置了健康检查；Web 等待 Gateway 健康后启动。
 - Gateway 捕获 SIGTERM / SIGINT，停止接受连接并在关闭数据库前等待 HTTP Server 完成。
@@ -57,4 +64,4 @@ SUBHUB_TRUST_PROXY_HEADERS 默认保持 false，此时所有请求共享 Owner �
     docker compose build
     docker compose up -d
 
-随后验证根路径或配置的 Base Path、登录/退出、保存后刷新、双窗口 409、业务 JSON 导出恢复、SQLite 备份恢复、容器重建后的数据持久性，以及 Web/Gateway 不可从非预期网络接口访问。
+随后验证根路径或配置的 Base Path、登录/退出、模型 BYOK 保存且不回显、自然语言草稿生成/取消/确认、续费与到期日期分别落库、保存后刷新、双窗口 409、业务 JSON 导出恢复、SQLite 备份恢复、容器重建后的数据持久性，以及 Web/Gateway 不可从非预期网络接口访问。
